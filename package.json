@@ -1,0 +1,27 @@
+{
+  "name": "sandy-image",
+  "version": "1.0.0",
+  "description": "Create a mesmerizing sand animation effect by drawing an `<img>` tag in grayscale using sand grains ",
+  "main": "sandy.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chesedo/sandy-image.git"
+  },
+  "keywords": [
+    "animation",
+    "abstract",
+    "sand",
+    "grayscale",
+    "image",
+    "effect"
+  ],
+  "author": "chesedo",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/chesedo/sandy-image/issues"
+  },
+  "homepage": "https://chesedo.github.io/sandy-image"
+}
