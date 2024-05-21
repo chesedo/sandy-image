@@ -31,9 +31,9 @@ Alternatively, you can include the library files directly in your project:
 
     ```javascript
     const sandyImage = new SandyImage('#myImage', {
-    size: 6,
-    steps: 5,
-    // Other options...
+        size: 6,
+        steps: 5,
+        // Other options...
     });
     ```
 

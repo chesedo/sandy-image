@@ -2,15 +2,113 @@
 <html>
 
 <head>
-    <title>Sandy Image</title>
+    <title>Sandy Image Library</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 30px;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            justify-content: space-around;
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        .preview {
+            align-content: center;
+            text-align: center;
+        }
+
+        .docs {
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+
+        code {
+            font-family: monospace;
+        }
+
+        ul>li {
+            margin-bottom: 10px;
+        }
+
+        @media (min-width: 1000px) {
+            .container {
+                flex-direction: row;
+            }
+
+            .preview {
+                width: 45%;
+                max-width: 450px;
+            }
+
+            .docs {
+                overflow-y: auto;
+                max-height: calc(100vh - 70px);
+            }
+        }
+    </style>
 </head>
 
 <body>
-    <img id="sandy-image" src="https://picsum.photos/600" />
+    <div class="container">
+        <div class="preview">
+            <img id="sandy-image" src="https://picsum.photos/id/357/450" />
 
-    <script src="sandy.js"></script>
+            <script src="sandy.js"></script>
+            <script>
+                new SandyImage('#sandy-image', {
+                    size: 4,
+                    steps: 5,
+                    stepDepth: 3,
+                    dragCoefficient: 0.3,
+                    createGrainFn: ({ canvasWidth, canvasHeight, size, index }) => {
+                        const x = 10;
+                        const y = 250;
+                        const vx = (Math.random() - 0.5) * size * 100;
+                        const vy = (Math.random() - 0.5) * size * 100;
+
+                        return { x, y, vx, vy };
+                    },
+                });
+            </script>
+        </div>
+
+        <div id="docs" class="docs"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
-        new SandyImage('#sandy-image');
+        fetch('README.md')
+            .then(response => response.text())
+            .then(markdown => {
+                const html = marked.parse(markdown);
+                document.getElementById('docs').innerHTML = html;
+            });
     </script>
 </body>
 
