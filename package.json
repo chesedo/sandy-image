@@ -1,6 +1,6 @@
 {
   "name": "sandy-image",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Create a mesmerizing sand animation effect by drawing an `<img>` tag in grayscale using sand grains ",
   "main": "sandy.js",
   "scripts": {

@@ -63,6 +63,9 @@ SandyImage.prototype.init = function () {
     this.img.style.display = 'none';
     this.img.crossOrigin = 'anonymous';
 
+    // Copy over image classes
+    this.canvas.className = this.img.className;
+
     // Used to rebel the grains from the mouse
     document.addEventListener('mousemove', this.handleInput.bind(this));
     document.addEventListener('touchmove', this.handleInput.bind(this));
