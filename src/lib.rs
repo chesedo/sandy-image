@@ -1,5 +1,4 @@
 use wasm_bindgen::prelude::wasm_bindgen;
-use web_sys::console;
 
 #[wasm_bindgen]
 pub struct Image {
@@ -19,29 +18,26 @@ pub struct Image {
     bottom_bound: f32,
 }
 
-macro_rules ! console_log {
-    ($($t:tt)*) => (console::log_1(&format_args!($($t)*).to_string().into()))
-}
-
 #[wasm_bindgen]
 impl Image {
-    pub fn new(elevation_data: &[u8], grains: &[f32]) -> Self {
+    pub fn new(
+        elevation_data: &[u8],
+        grains: &[f32],
+        size: u32,
+        width: u32,
+        height: u32,
+        drag_coefficient: f32,
+        repel_radius: u32,
+    ) -> Self {
         let elevation_data = elevation_data
             .iter()
             .map(|&i| i.try_into().unwrap_or_default())
             .collect();
         let grains = grains.to_vec();
 
-        let size = 4;
-        let width = 450;
-        let height = 450;
-
-        let repel_radius = 20;
-
         let elevation_offset = size - 1;
         let elevation_offset_halfed = elevation_offset / 2;
 
-        console_log!("image ready");
         Self {
             elevation_data,
             grains,
@@ -50,7 +46,7 @@ impl Image {
             height,
             repel_radius,
             repel_radius_squared: (repel_radius * repel_radius) as f32,
-            drag_coefficient: 0.3,
+            drag_coefficient,
 
             elevation_offset,
             elevation_offset_halfed,

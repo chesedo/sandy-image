@@ -189,7 +189,6 @@ SandyImage.prototype.startWorker = function () {
                 size: this.size,
                 width: this.canvas.width,
                 height: this.canvas.height,
-                steps: this.steps,
                 repelRadius: this.repelRadius,
                 dragCoefficient: this.dragCoefficient,
                 debug: this.debug,

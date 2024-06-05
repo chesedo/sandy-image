@@ -14,15 +14,7 @@ async function init_wasm() {
 
     self.onmessage = async event => {
         if (event.data.elevationData && event.data.grains) {
-            image = Image.new(event.data.elevationData, event.data.grains);
-            //     // Initial data received
-            //     size = event.data.size;
-            //     width = event.data.width;
-            //     height = event.data.height;
-            //     dragCoefficient = parseFloat(event.data.dragCoefficient);
-
-            //     repelRadius = event.data.repelRadius;
-
+            image = Image.new(event.data.elevationData, event.data.grains, event.data.size, event.data.width, event.data.height, event.data.dragCoefficient, event.data.repelRadius);
             debug = event.data.debug;
 
             //     // For a normal 2D array, the offset is just "left" and "right" movements
@@ -56,23 +48,3 @@ async function init_wasm() {
 }
 
 init_wasm();
-
-// function updateGrains() {
-//         // Repel from mouse if within repel radius
-//         if (x > repelXMin && x < repelXMax && y > repelYMin && y < repelYMax) {
-//             const dx = x - mouseX;
-//             const dy = y - mouseY;
-//             const distance = dx * dx + dy * dy;
-
-//             if (distance < repelRadiusSquared) {
-//                 const repelFactor = Math.sqrt(distance);
-//                 vx += dx * repelFactor;
-//                 vy += dy * repelFactor;
-//             }
-//         }
-
-//         // Damper the velocity based on the size of the grain and the drag coefficient
-//         vx = Math.tanh(vx / size) * size * dragCoefficient;
-//         vy = Math.tanh(vy / size) * size * dragCoefficient;
-
-// }

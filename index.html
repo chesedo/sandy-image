@@ -82,10 +82,10 @@
             <script src="sandy.js"></script>
             <script>
                 new SandyImage('#sandy-image', {
-                    size: 4,
+                    size: 3,
                     steps: 5,
                     stepDepth: 3,
-                    dragCoefficient: 0.3,
+                    dragCoefficient: 0.9,
                     createGrainFn: ({ canvasWidth, canvasHeight, size, index }) => {
                         const x = 10;
                         const y = 250;
@@ -94,6 +94,7 @@
 
                         return { x, y, vx, vy };
                     },
+                    debug: true,
                 });
             </script>
         </div>
