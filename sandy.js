@@ -8,8 +8,8 @@ function SandyImage(imgSelector, options) {
         dragCoefficient: 0.2,
         repelRadius: 20,
         createGrainFn: ({ canvasWidth, canvasHeight, size, index }) => {
-            const x = Math.random() * (canvasWidth - size) + size / 2;
-            const y = Math.random() * (canvasHeight - size) + size / 2;
+            const x = Math.random() * (canvasWidth - size);
+            const y = Math.random() * (canvasHeight - size);
             const vx = (Math.random() - 0.5) * size * 100;
             const vy = (Math.random() - 0.5) * size * 100;
 
@@ -177,29 +177,29 @@ SandyImage.prototype.createGrains = function () {
 SandyImage.prototype.startWorker = function () {
     this.worker = new Worker('sandy-worker.js');
 
-let totalElapsedTime = 0;
+    let totalElapsedTime = 0;
 
     // Update the canvas when there are new grain positions
     this.worker.onmessage = function (event) {
         if (event.data === "ready") {
-    // Send the initial data to the worker
-    this.worker.postMessage({
-        elevationData: this.elevationData,
-        grains: this.grains,
-        size: this.size,
-        width: this.canvas.width,
-        height: this.canvas.height,
-        steps: this.steps,
-        repelRadius: this.repelRadius,
-        dragCoefficient: this.dragCoefficient,
-        debug: this.debug,
-    });
+            // Send the initial data to the worker
+            this.worker.postMessage({
+                elevationData: this.elevationData,
+                grains: this.grains,
+                size: this.size,
+                width: this.canvas.width,
+                height: this.canvas.height,
+                steps: this.steps,
+                repelRadius: this.repelRadius,
+                dragCoefficient: this.dragCoefficient,
+                debug: this.debug,
+            });
 
-    this.updating = false;
+            this.updating = false;
             return;
         }
 
-            const startTime = performance.now();
+        const startTime = performance.now();
 
         this.updating = false;
         const updatedGrains = event.data.grains;
