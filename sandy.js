@@ -209,7 +209,7 @@ SandyImage.prototype.startWorker = function () {
 
         this.ctx.fillStyle = `rgba(0, 0, 0, ${1.0 / this.steps / this.stepDepth})`;
 
-        for (let i = 0; i < updatedGrains.length; i += 4) {
+        for (let i = 0; i < updatedGrains.length; i += 2) {
             const x = updatedGrains[i];
             const y = updatedGrains[i + 1];
             this.ctx.fillRect(x, y, this.size, this.size);

@@ -1,9 +1,146 @@
+use std::vec;
+
 use wasm_bindgen::prelude::wasm_bindgen;
+
+struct Grain {
+    x: f32,
+    y: f32,
+    vx: f32,
+    vy: f32,
+}
+
+impl Grain {
+    /// Move the grain down the hill based on the elevation data
+    #[inline]
+    fn move_down_hill(
+        &mut self,
+        elevation_data: &[i8],
+        offset: u32,
+        offset_halfed: u32,
+        width: u32,
+    ) {
+        // Convert to integers for array indexing
+        let x_int = self.x.floor() as u32;
+        let y_int = self.y.floor() as u32;
+
+        // The x_int and y_int are the top left corner of the grain
+        // So rather calculate the gradient using the center bounds of each side
+        self.move_down_hill_x(elevation_data, x_int, y_int + offset_halfed, offset, width);
+        self.move_down_hill_y(elevation_data, x_int + offset_halfed, y_int, offset, width);
+    }
+
+    #[inline]
+    fn move_down_hill_x(&mut self, elevation_data: &[i8], x: u32, y: u32, offset: u32, width: u32) {
+        let value_left = Self::get_elevation_value(elevation_data, x, y, width);
+        let value_right = Self::get_elevation_value(elevation_data, x + offset, y, width);
+
+        let gradient = value_right - value_left;
+        self.vx += gradient as f32;
+    }
+
+    #[inline]
+    fn move_down_hill_y(&mut self, elevation_data: &[i8], x: u32, y: u32, offset: u32, width: u32) {
+        let value_top = Self::get_elevation_value(elevation_data, x, y, width);
+        let value_bottom = Self::get_elevation_value(elevation_data, x, y + offset, width);
+
+        let gradient = value_bottom - value_top;
+        self.vy += gradient as f32;
+    }
+
+    #[inline]
+    fn get_elevation_value(elevation_data: &[i8], x: u32, y: u32, width: u32) -> i8 {
+        let index = x + y * width;
+        elevation_data[index as usize]
+    }
+
+    /// Update the position of the grain and keep it within the bounds
+    #[inline]
+    fn update_position(
+        &mut self,
+        left_bound: f32,
+        right_bound: f32,
+        top_bound: f32,
+        bottom_bound: f32,
+        drag_coefficient: f32,
+    ) {
+        self.update_velocity(drag_coefficient);
+
+        // Calculate the new position of the grain based on its velocity
+        self.x += self.vx;
+        self.y += self.vy;
+
+        self.keep_witin_bounds(left_bound, right_bound, top_bound, bottom_bound);
+    }
+
+    /// Damper the velocity based on the drag coefficient
+    #[inline]
+    fn update_velocity(&mut self, drag_coefficient: f32) {
+        self.vx = self.vx.tanh() * drag_coefficient;
+        self.vy = self.vy.tanh() * drag_coefficient;
+    }
+
+    /// Keep the grain within the canvas bounds and reverse its velocity if it crosses the edges
+    #[inline]
+    fn keep_witin_bounds(
+        &mut self,
+        left_bound: f32,
+        right_bound: f32,
+        top_bound: f32,
+        bottom_bound: f32,
+    ) {
+        if self.x < left_bound {
+            self.x = left_bound;
+            self.vx = -self.vx;
+        } else if self.x > right_bound {
+            self.x = right_bound;
+            self.vx = -self.vx;
+        }
+
+        if self.y < top_bound {
+            self.y = top_bound;
+            self.vy = -self.vy;
+        } else if self.y > bottom_bound {
+            self.y = bottom_bound;
+            self.vy = -self.vy;
+        }
+    }
+
+    /// Repel from mouse if within repel radius
+    fn repel_from_mouse(
+        &mut self,
+        mouse_x: f32,
+        mouse_y: f32,
+        repel_x_min: f32,
+        repel_x_max: f32,
+        repel_y_min: f32,
+        repel_y_max: f32,
+        repel_radius_squared: f32,
+    ) {
+        if self.x > repel_x_min
+            && self.x < repel_x_max
+            && self.y > repel_y_min
+            && self.y < repel_y_max
+        {
+            let dx = self.x - mouse_x;
+            let dy = self.y - mouse_y;
+            let distance_squared = dx * dx + dy * dy;
+
+            if distance_squared < repel_radius_squared {
+                let distance = distance_squared.sqrt();
+                let repel_force = repel_radius_squared - distance_squared;
+                let force = repel_force / distance;
+
+                self.vx += dx / force;
+                self.vy += dy / force;
+            }
+        }
+    }
+}
 
 #[wasm_bindgen]
 pub struct Image {
     elevation_data: Vec<i8>,
-    grains: Vec<f32>,
+    grains: Vec<Grain>,
     size: u32,
     width: u32,
     height: u32,
@@ -33,7 +170,15 @@ impl Image {
             .iter()
             .map(|&i| i.try_into().unwrap_or_default())
             .collect();
-        let grains = grains.to_vec();
+        let grains = grains
+            .chunks(4)
+            .map(|g| Grain {
+                x: g[0],
+                y: g[1],
+                vx: g[2],
+                vy: g[3],
+            })
+            .collect();
 
         let elevation_offset = size - 1;
         let elevation_offset_halfed = elevation_offset / 2;
@@ -72,109 +217,56 @@ impl Image {
         let repel_y_min = mouse_y - self.repel_radius as f32;
         let repel_y_max = mouse_y + self.repel_radius as f32;
 
-        for i in (0..self.grains.len()).step_by(4) {
-            let x = self.grains[i];
-            let y = self.grains[i + 1];
-            let mut vx = self.grains[i + 2];
-            let mut vy = self.grains[i + 3];
-
-            // Convert to integers for array indexing
-            let x_int = x.floor() as u32;
-            let y_int = y.floor() as u32;
-
-            // The x_int and y_int are the top left corner of the grain
-            // So rather calculate the gradient using the center bounds of each side
-            let value_left = self.get_elevation_value(
+        for grain in self.grains.iter_mut() {
+            grain.move_down_hill(
                 &elevation_data,
-                x_int,
-                y_int + self.elevation_offset_halfed,
-            );
-            let value_right = self.get_elevation_value(
-                &elevation_data,
-                x_int + self.elevation_offset,
-                y_int + self.elevation_offset_halfed,
-            );
-            let value_top = self.get_elevation_value(
-                &elevation_data,
-                x_int + self.elevation_offset_halfed,
-                y_int,
-            );
-            let value_bottom = self.get_elevation_value(
-                &elevation_data,
-                x_int + self.elevation_offset_halfed,
-                y_int + self.elevation_offset,
+                self.elevation_offset,
+                self.elevation_offset_halfed,
+                self.width,
             );
 
-            // Calculate the gradient based on grain bounds
-            let gradient_x = value_right - value_left;
-            let gradient_y = value_bottom - value_top;
+            // Apply global breeze
+            grain.vx += global_vx;
+            grain.vy += global_vy;
 
-            vx += gradient_x as f32 + global_vx;
-            vy += gradient_y as f32 + global_vy;
+            grain.repel_from_mouse(
+                mouse_x,
+                mouse_y,
+                repel_x_min,
+                repel_x_max,
+                repel_y_min,
+                repel_y_max,
+                self.repel_radius_squared,
+            );
 
-            // Repel from mouse if within repel radius
-            if x > repel_x_min && x < repel_x_max && y > repel_y_min && y < repel_y_max {
-                let dx = x - mouse_x;
-                let dy = y - mouse_y;
-                let distance = dx * dx + dy * dy;
+            grain.update_position(
+                self.left_bound,
+                self.right_bound,
+                self.top_bound,
+                self.bottom_bound,
+                self.drag_coefficient,
+            );
 
-                if distance < self.repel_radius_squared {
-                    let distance = distance.sqrt();
-                    let repel_force = self.repel_radius as f32 - distance;
-                    vx += dx / distance * repel_force;
-                    vy += dy / distance * repel_force;
-                }
-            }
-
-            // Damper the velocity based on the size of the grain and the drag coefficient
-            vx = vx.tanh() * self.drag_coefficient;
-            vy = vy.tanh() * self.drag_coefficient;
-
-            // Calculate the new position of the grain based on its velocity
-            let mut x = x + vx;
-            let mut y = y + vy;
-
-            // Keep the grain within the canvas bounds and reverse its velocity if it crosses the edges
-            if x < self.left_bound {
-                x = self.left_bound;
-                vx = -vx;
-            } else if x > self.right_bound {
-                x = self.right_bound;
-                vx = -vx;
-            }
-            if y < self.top_bound {
-                y = self.top_bound;
-                vy = -vy;
-            } else if y > self.bottom_bound {
-                y = self.bottom_bound;
-                vy = -vy;
-            }
-
-            // Subtract 1 from the elevation data copy below the grain
-            let min_x = x.floor() as u32;
-            let max_x = (x + self.size as f32).floor() as u32;
-            let min_y = y.floor() as u32;
-            let max_y = (y + self.size as f32).floor() as u32;
-
-            for j in min_y..max_y {
-                let row_index = j * self.width;
-                for i in min_x..max_x {
-                    elevation_data[(i + row_index) as usize] -= 1;
-                }
-            }
-
-            // Update the grain's position and velocity in the grains array
-            self.grains[i] = x;
-            self.grains[i + 1] = y;
-            self.grains[i + 2] = vx;
-            self.grains[i + 3] = vy;
+            Self::update_elevation_data(grain, &mut elevation_data, self.size, self.width);
         }
 
-        js_sys::Float32Array::from(&self.grains[..])
+        let positions: Vec<f32> = self.grains.iter().flat_map(|g| vec![g.x, g.y]).collect();
+        js_sys::Float32Array::from(positions.as_slice())
     }
 
-    fn get_elevation_value(&self, elevation_data: &[i8], x: u32, y: u32) -> i8 {
-        let index = x + y * self.width;
-        elevation_data[index as usize]
+    /// Subtract 1 from the elevation data copy below the grain
+    #[inline]
+    fn update_elevation_data(grain: &Grain, elevation_data: &mut Vec<i8>, size: u32, width: u32) {
+        let min_x = grain.x.floor() as u32;
+        let max_x = (grain.x + size as f32).floor() as u32;
+        let min_y = grain.y.floor() as u32;
+        let max_y = (grain.y + size as f32).floor() as u32;
+
+        for j in min_y..max_y {
+            let row_index = j * width;
+            for i in min_x..max_x {
+                elevation_data[(i + row_index) as usize] -= 1;
+            }
+        }
     }
 }
