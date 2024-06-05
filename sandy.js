@@ -177,6 +177,11 @@ SandyImage.prototype.createGrains = function () {
 SandyImage.prototype.startWorker = function () {
     this.worker = new Worker('sandy-worker.js');
 
+let totalElapsedTime = 0;
+
+    // Update the canvas when there are new grain positions
+    this.worker.onmessage = function (event) {
+        if (event.data === "ready") {
     // Send the initial data to the worker
     this.worker.postMessage({
         elevationData: this.elevationData,
@@ -190,11 +195,11 @@ SandyImage.prototype.startWorker = function () {
         debug: this.debug,
     });
 
-    let totalElapsedTime = 0;
+    this.updating = false;
+            return;
+        }
 
-    // Update the canvas when there are new grain positions
-    this.worker.onmessage = function (event) {
-        const startTime = performance.now();
+            const startTime = performance.now();
 
         this.updating = false;
         const updatedGrains = event.data.grains;
