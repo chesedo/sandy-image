@@ -140,24 +140,37 @@ impl Grain {
 
 #[wasm_bindgen]
 pub struct Image {
+    /// Where the magic happens. This stores which part of the image should have more grains in it
     elevation_data: Vec<i8>,
+    /// Current position of the grains
     grains: Vec<Grain>,
+    /// Size of a single grain
     size: u32,
+    /// Width of the image
     width: u32,
-    height: u32,
+    /// Radius around mouse which grains should repel from
     repel_radius: u32,
+    /// Repel radius squared for faster calculations
     repel_radius_squared: f32,
+    /// Damping factor to slow down the velocity of the grains
     damping_factor: f32,
+    /// Used to calculate gradients points from the elevation data
     elevation_offset: u32,
+    /// Used to make sure the gradient calculations happen from the center of the grain
     elevation_offset_halfed: u32,
+    /// Left side of the canvas in which the grains should stay within
     left_bound: f32,
+    /// Right side of the canvas in which the grains should stay within
     right_bound: f32,
+    /// Top side of the canvas in which the grains should stay within
     top_bound: f32,
+    /// Bottom side of the canvas in which the grains should stay within
     bottom_bound: f32,
 }
 
 #[wasm_bindgen]
 impl Image {
+    /// Create a new image for the elevation data, initial grains, and other parameters
     pub fn new(
         elevation_data: &[u8],
         grains: &[f32],
@@ -181,6 +194,9 @@ impl Image {
             })
             .collect();
 
+        // For a normal 2D array, the offset is just "left" and "right" movements
+        // Since we want to use the left and right borders of the grains for the gradient calculation,
+        // we need to have the offset to be the inside border of a full grain
         let elevation_offset = size - 1;
         let elevation_offset_halfed = elevation_offset / 2;
 
@@ -189,7 +205,6 @@ impl Image {
             grains,
             size,
             width,
-            height,
             repel_radius,
             repel_radius_squared: (repel_radius * repel_radius) as f32,
             damping_factor,
@@ -204,6 +219,7 @@ impl Image {
         }
     }
 
+    /// Update the position of the grains based on the global breeze and mouse position
     pub fn update_grains(
         &mut self,
         global_vx: f32,

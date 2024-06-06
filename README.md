@@ -40,7 +40,7 @@ Alternatively, you can include the library files directly in your project:
 2. The library will automatically replace the target image with a canvas and start the sand animation.
 
 3. Customize the animation by providing options during initialization. The available options include:
-    - `size`: The pixel size of each sand grain (default: 6). Bigger sizes result in a faster animation but reduces the detail in the final image.
+    - `size`: The pixel size of each sand grain (default: 5). Bigger sizes result in a faster animation but reduces the detail in the final image.
     - `steps`: The number of grayscale steps the image should be converted into (default: 5). Smaller steps result in a faster animation, but values lower than 5 tend to have clear grayscale steps.
     - `stepDepth`: The artificial "depth" added to each grayscale step (default: 3). This makes it possible to use bigger sizes and smaller steps by adding an artificial detail to the final image. It also helps grains to not be dislodged (by the mouse or breeze) from "deep" cuts easily. Values between 2 and 5 tend to work well.
     - `targetFPS`: The target frames per second for the animation (default: 30).

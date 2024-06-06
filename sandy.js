@@ -1,7 +1,7 @@
 function SandyImage(imgSelector, options) {
     this.imgSelector = imgSelector;
     options = {
-        size: 6,
+        size: 5,
         steps: 5,
         stepDepth: 3,
         targetFPS: 30,
@@ -175,7 +175,7 @@ SandyImage.prototype.createGrains = function () {
 };
 
 SandyImage.prototype.startWorker = function () {
-    this.worker = new Worker('sandy-worker.js');
+    this.worker = new Worker('./sandy-worker.js');
 
     let totalElapsedTime = 0;
 
