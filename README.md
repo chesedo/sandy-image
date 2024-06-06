@@ -22,7 +22,7 @@ Alternatively, you can include the library files directly in your project:
 
 ```html
 <script src="path/to/sandy.js"></script>
-<!-- Make sure sandy-worker.js is in the same directory -->
+<!-- Make sure sandy-worker.js, sandy-image.js and sandy-image_bg.wasm is in the same directory -->
 ```
 
 ## Usage
