@@ -260,16 +260,14 @@ impl Image {
     /// Subtract 1 from the elevation data copy below the grain
     #[inline]
     fn update_elevation_data(grain: &Grain, elevation_data: &mut Vec<i8>, size: u32, width: u32) {
-        let min_x = grain.x.floor() as u32;
-        let max_x = (grain.x + size as f32).floor() as u32;
-        let min_y = grain.y.floor() as u32;
-        let max_y = (grain.y + size as f32).floor() as u32;
+        let start_x = grain.x.floor() as u32;
+        let start_y = grain.y.floor() as u32;
 
-        for j in min_y..max_y {
-            let row_index = j * width;
-            for i in min_x..max_x {
-                elevation_data[(i + row_index) as usize] -= 1;
-            }
-        }
+        (0..size).for_each(|col| {
+            (0..size).for_each(|row| {
+                let row_index = (row + start_y) * width;
+                elevation_data[(col + start_x + row_index) as usize] -= 1;
+            });
+        });
     }
 }
