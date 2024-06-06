@@ -5,13 +5,13 @@ function SandyImage(imgSelector, options) {
         steps: 5,
         stepDepth: 3,
         targetFPS: 30,
-        dragCoefficient: 0.2,
+        dampingFactor: 0.95,
         repelRadius: 20,
         createGrainFn: ({ canvasWidth, canvasHeight, size, index }) => {
             const x = Math.random() * (canvasWidth - size);
             const y = Math.random() * (canvasHeight - size);
-            const vx = (Math.random() - 0.5) * size * 100;
-            const vy = (Math.random() - 0.5) * size * 100;
+            const vx = (Math.random() - 0.5) * size;
+            const vy = (Math.random() - 0.5) * size;
 
             return { x, y, vx, vy };
         },
@@ -34,7 +34,7 @@ function SandyImage(imgSelector, options) {
     this.stepDepth = options.stepDepth;
     this.targetFPS = options.targetFPS;
     this.targetFrameTime = 1000 / this.targetFPS;
-    this.dragCoefficient = options.dragCoefficient;
+    this.dampingFactor = options.dampingFactor;
     this.repelRadius = options.repelRadius;
     this.mouseX = -this.repelRadius;
     this.mouseY = -this.repelRadius;
@@ -190,7 +190,7 @@ SandyImage.prototype.startWorker = function () {
                 width: this.canvas.width,
                 height: this.canvas.height,
                 repelRadius: this.repelRadius,
-                dragCoefficient: this.dragCoefficient,
+                dampingFactor: this.dampingFactor,
                 debug: this.debug,
             });
 

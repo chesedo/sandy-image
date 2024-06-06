@@ -14,7 +14,7 @@ async function init_wasm() {
 
     self.onmessage = async event => {
         if (event.data.elevationData && event.data.grains) {
-            image = Image.new(event.data.elevationData, event.data.grains, event.data.size, event.data.width, event.data.height, event.data.dragCoefficient, event.data.repelRadius);
+            image = Image.new(event.data.elevationData, event.data.grains, event.data.size, event.data.width, event.data.height, event.data.dampingFactor, event.data.repelRadius);
             debug = event.data.debug;
 
             //     // For a normal 2D array, the offset is just "left" and "right" movements

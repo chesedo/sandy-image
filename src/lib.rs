@@ -61,9 +61,9 @@ impl Grain {
         right_bound: f32,
         top_bound: f32,
         bottom_bound: f32,
-        drag_coefficient: f32,
+        damping_factor: f32,
     ) {
-        self.update_velocity(drag_coefficient);
+        self.apply_damping(damping_factor);
 
         // Calculate the new position of the grain based on its velocity
         self.x += self.vx;
@@ -72,11 +72,14 @@ impl Grain {
         self.keep_witin_bounds(left_bound, right_bound, top_bound, bottom_bound);
     }
 
-    /// Damper the velocity based on the drag coefficient
+    /// Damper the velocity based on the damping factor
     #[inline]
-    fn update_velocity(&mut self, drag_coefficient: f32) {
-        self.vx = self.vx.tanh() * drag_coefficient;
-        self.vy = self.vy.tanh() * drag_coefficient;
+    fn apply_damping(&mut self, damping_factor: f32) {
+        self.vx = self.vx.clamp(-1 as f32, 1 as f32);
+        self.vy = self.vy.clamp(-1 as f32, 1 as f32);
+
+        self.vx *= damping_factor;
+        self.vy *= damping_factor;
     }
 
     /// Keep the grain within the canvas bounds and reverse its velocity if it crosses the edges
@@ -146,7 +149,7 @@ pub struct Image {
     height: u32,
     repel_radius: u32,
     repel_radius_squared: f32,
-    drag_coefficient: f32,
+    damping_factor: f32,
     elevation_offset: u32,
     elevation_offset_halfed: u32,
     left_bound: f32,
@@ -163,7 +166,7 @@ impl Image {
         size: u32,
         width: u32,
         height: u32,
-        drag_coefficient: f32,
+        damping_factor: f32,
         repel_radius: u32,
     ) -> Self {
         let elevation_data = elevation_data
@@ -191,7 +194,7 @@ impl Image {
             height,
             repel_radius,
             repel_radius_squared: (repel_radius * repel_radius) as f32,
-            drag_coefficient,
+            damping_factor,
 
             elevation_offset,
             elevation_offset_halfed,
@@ -244,7 +247,7 @@ impl Image {
                 self.right_bound,
                 self.top_bound,
                 self.bottom_bound,
-                self.drag_coefficient,
+                self.damping_factor,
             );
 
             Self::update_elevation_data(grain, &mut elevation_data, self.size, self.width);
