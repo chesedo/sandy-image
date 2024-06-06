@@ -2,13 +2,13 @@ let debug = false;
 let totalElapsedTime = 0;
 let totalFrames = 0;
 
-importScripts('./pkg/sandy_image.js')
+importScripts('./sandy-image.js')
 
 const { Image } = wasm_bindgen;
 let image;
 
 async function init_wasm() {
-    await wasm_bindgen('./pkg/sandy_image_bg.wasm');
+    await wasm_bindgen('./sandy-image_bg.wasm');
 
     self.postMessage("ready");
 
