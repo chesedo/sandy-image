@@ -1,17 +1,17 @@
 function SandyImage(imgSelector, options) {
     this.imgSelector = imgSelector;
     options = {
-        size: 6,
+        size: 5,
         steps: 5,
         stepDepth: 3,
         targetFPS: 30,
-        dragCoefficient: 0.2,
+        dampingFactor: 0.95,
         repelRadius: 20,
         createGrainFn: ({ canvasWidth, canvasHeight, size, index }) => {
-            const x = Math.random() * (canvasWidth - size) + size / 2;
-            const y = Math.random() * (canvasHeight - size) + size / 2;
-            const vx = (Math.random() - 0.5) * size * 100;
-            const vy = (Math.random() - 0.5) * size * 100;
+            const x = Math.random() * (canvasWidth - size);
+            const y = Math.random() * (canvasHeight - size);
+            const vx = (Math.random() - 0.5) * size;
+            const vy = (Math.random() - 0.5) * size;
 
             return { x, y, vx, vy };
         },
@@ -34,7 +34,7 @@ function SandyImage(imgSelector, options) {
     this.stepDepth = options.stepDepth;
     this.targetFPS = options.targetFPS;
     this.targetFrameTime = 1000 / this.targetFPS;
-    this.dragCoefficient = options.dragCoefficient;
+    this.dampingFactor = options.dampingFactor;
     this.repelRadius = options.repelRadius;
     this.mouseX = -this.repelRadius;
     this.mouseY = -this.repelRadius;
@@ -175,25 +175,29 @@ SandyImage.prototype.createGrains = function () {
 };
 
 SandyImage.prototype.startWorker = function () {
-    this.worker = new Worker('sandy-worker.js');
-
-    // Send the initial data to the worker
-    this.worker.postMessage({
-        elevationData: this.elevationData,
-        grains: this.grains,
-        size: this.size,
-        width: this.canvas.width,
-        height: this.canvas.height,
-        steps: this.steps,
-        repelRadius: this.repelRadius,
-        dragCoefficient: this.dragCoefficient,
-        debug: this.debug,
-    });
+    this.worker = new Worker('./sandy-worker.js');
 
     let totalElapsedTime = 0;
 
     // Update the canvas when there are new grain positions
     this.worker.onmessage = function (event) {
+        if (event.data === "ready") {
+            // Send the initial data to the worker
+            this.worker.postMessage({
+                elevationData: this.elevationData,
+                grains: this.grains,
+                size: this.size,
+                width: this.canvas.width,
+                height: this.canvas.height,
+                repelRadius: this.repelRadius,
+                dampingFactor: this.dampingFactor,
+                debug: this.debug,
+            });
+
+            this.updating = false;
+            return;
+        }
+
         const startTime = performance.now();
 
         this.updating = false;
@@ -205,7 +209,7 @@ SandyImage.prototype.startWorker = function () {
 
         this.ctx.fillStyle = `rgba(0, 0, 0, ${1.0 / this.steps / this.stepDepth})`;
 
-        for (let i = 0; i < updatedGrains.length; i += 4) {
+        for (let i = 0; i < updatedGrains.length; i += 2) {
             const x = updatedGrains[i];
             const y = updatedGrains[i + 1];
             this.ctx.fillRect(x, y, this.size, this.size);

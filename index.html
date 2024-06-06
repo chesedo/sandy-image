@@ -83,17 +83,9 @@
             <script>
                 new SandyImage('#sandy-image', {
                     size: 4,
-                    steps: 5,
+                    steps: 7,
                     stepDepth: 3,
-                    dragCoefficient: 0.3,
-                    createGrainFn: ({ canvasWidth, canvasHeight, size, index }) => {
-                        const x = 10;
-                        const y = 250;
-                        const vx = (Math.random() - 0.5) * size * 100;
-                        const vy = (Math.random() - 0.5) * size * 100;
-
-                        return { x, y, vx, vy };
-                    },
+                    dampingFactor: 0.9,
                 });
             </script>
         </div>
