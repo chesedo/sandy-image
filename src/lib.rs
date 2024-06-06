@@ -130,11 +130,9 @@ impl Grain {
 
             if distance_squared < repel_radius_squared {
                 let distance = distance_squared.sqrt();
-                let repel_force = repel_radius_squared - distance_squared;
-                let force = repel_force / distance;
 
-                self.vx += dx / force;
-                self.vy += dy / force;
+                self.vx += dx / distance;
+                self.vy += dy / distance;
             }
         }
     }
