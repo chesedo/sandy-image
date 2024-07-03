@@ -5,7 +5,8 @@
   "main": "sandy.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "wasm-pack build --target no-modules --release --no-pack --no-typescript --out-name sandy-image; cp pkg/sandy-image* ./"
+    "build": "wasm-pack build --target no-modules --release --no-pack --no-typescript --out-name sandy-image; cp pkg/sandy-image* ./",
+    "dev": "concurrently \"http-server -c-1\" \"cargo watch -q -s 'npm run build'\""
   },
   "repository": {
     "type": "git",
@@ -24,5 +25,9 @@
   "bugs": {
     "url": "https://github.com/chesedo/sandy-image/issues"
   },
-  "homepage": "https://chesedo.github.io/sandy-image"
+  "homepage": "https://chesedo.github.io/sandy-image",
+  "dependencies": {
+    "concurrently": "^8.2.2",
+    "http-server": "^14.1.1"
+  }
 }
