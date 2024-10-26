@@ -27,7 +27,7 @@
   },
   "homepage": "https://chesedo.github.io/sandy-image",
   "dependencies": {
-    "concurrently": "^8.2.2",
+    "concurrently": "^9.0.1",
     "http-server": "^14.1.1"
   }
 }
