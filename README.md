@@ -1,14 +1,15 @@
 # Sandy Image Library
 
-The Sandy Image Library is a JavaScript library that creates a mesmerizing sand animation effect by drawing an `<img>` tag in grayscale using sand grains. The sand grains are dynamically repelled from the mouse or touch input, creating an interactive and visually appealing experience.
+The Sandy Image Library creates mesmerizing sand animations by transforming static images into interactive grayscale sand art. Built with WebAssembly for high performance, it makes thousands of sand grains react smoothly to mouse/touch input while maintaining efficient CPU usage.
 
 ## Features
 
-- Converts an image into a grayscale sand animation
-- Sand grains are repelled from the mouse or touch input
-- Customizable options for grain size, animation steps, and more
-- Smooth and efficient animation using a worker thread
-- Adjustable wind effect for dynamic animations
+- WebAssembly-powered performance handles thousands of sand grains efficiently
+- Converts images into interactive grayscale sand animations
+- Dynamic sand grain physics - particles are repelled from mouse/touch input
+- Smooth worker thread animation targeting 30 FPS
+- Customizable options for grain size, animation steps, and breeze effects
+- Small bundle size - only ships the necessary WASM code
 
 ## Installation
 
@@ -18,11 +19,16 @@ You can install the Sandy Image Library via npm:
 npm install sandy-image
 ```
 
-Alternatively, you can include the library files directly in your project:
+This will install both the JavaScript wrapper and the WebAssembly module. The library uses a worker thread to ensure smooth animations without impacting the main thread.
+
+Alternatively, you can include the library files directly:
 
 ```html
 <script src="path/to/sandy.js"></script>
-<!-- Make sure sandy-worker.js, sandy-image.js and sandy-image_bg.wasm is in the same directory -->
+<!-- The following files must be in the same directory:
+  - sandy-worker.js: Handles animation calculations
+  - sandy-image.js: The WebAssembly JavaScript glue code
+  - sandy-image_bg.wasm: The WebAssembly module -->
 ```
 
 ## Usage
