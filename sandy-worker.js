@@ -14,13 +14,13 @@ async function init_wasm() {
 
     self.onmessage = async event => {
         if (event.data.elevationData && event.data.grains) {
-            image = Image.new(event.data.elevationData, event.data.grains, event.data.size, event.data.width, event.data.height, event.data.dampingFactor, event.data.repelRadius);
+            image = Image.new(event.data.elevationData, event.data.grains, event.data.size, event.data.width, event.data.height, event.data.dampingFactor, event.data.repelRadius, event.data.steps, event.data.stepDepth);
             debug = event.data.debug;
         } else if (event.data.action === 'update') {
             const startTime = performance.now();
-            const grains = image.update_grains(event.data.globalVx, event.data.globalVy, event.data.mouseX, event.data.mouseY);
+            const alphaData = image.update_grains(event.data.globalVx, event.data.globalVy, event.data.mouseX, event.data.mouseY);
 
-            self.postMessage({ grains });
+            self.postMessage({ alphaData });
 
             if (debug) {
                 const endTime = performance.now();
