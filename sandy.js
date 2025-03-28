@@ -2,11 +2,7 @@ function SandyImage(imgSelector, options) {
     this.imgSelector = imgSelector;
     options = {
         size: 5,
-        steps: 5,
-        stepDepth: 3,
-        targetFPS: 30,
         dampingFactor: 0.95,
-        repelRadius: 20,
         createGrainFn: ({ canvasWidth, canvasHeight, size, index }) => {
             const x = Math.random() * (canvasWidth - size);
             const y = Math.random() * (canvasHeight - size);
@@ -15,47 +11,21 @@ function SandyImage(imgSelector, options) {
 
             return { x, y, vx, vy };
         },
-        breezeFn: ({ frame, globalVx, globalVy }) => {
-            if (frame % 30 === 0) {
-                globalVx += Math.random() * 1 - 0.5;
-                globalVy += Math.random() * 1 - 0.5;
-
-                globalVx = Math.tanh(globalVx);
-                globalVy = Math.tanh(globalVy);
-            }
-
-            return { globalVx, globalVy }
-        },
-        debug: false,
         ...options
     };
     this.size = options.size;
-    this.steps = options.steps;
-    this.stepDepth = options.stepDepth;
-    this.targetFPS = options.targetFPS;
-    this.targetFrameTime = 1000 / this.targetFPS;
     this.dampingFactor = options.dampingFactor;
-    this.repelRadius = options.repelRadius;
-    this.mouseX = -this.repelRadius;
-    this.mouseY = -this.repelRadius;
-    this.elevationData = null;
-    this.grainCount = 0;
     this.createGrainFn = options.createGrainFn;
-    this.breezeFn = options.breezeFn;
-    this.globalVx = 0;
-    this.globalVy = 0;
-    this.frame = 0;
-    this.grains = null;
-    this.updating = false;
 
-    this.debug = options.debug;
+    this.grainCount = 10; // TODO remove
+    this.grains = null;
 
     this.init();
 }
 
 SandyImage.prototype.init = function () {
     this.canvas = document.createElement('canvas');
-    this.ctx = this.canvas.getContext('2d');
+    this.offscreen_canvas = this.canvas.transferControlToOffscreen();
 
     // Replace the image with the grains canvas
     this.img = document.querySelector(this.imgSelector);
@@ -66,11 +36,6 @@ SandyImage.prototype.init = function () {
     // Copy over image classes
     this.canvas.className = this.img.className;
 
-    // Used to rebel the grains from the mouse
-    document.addEventListener('mousemove', this.handleInput.bind(this));
-    document.addEventListener('touchmove', this.handleInput.bind(this));
-    document.addEventListener('touchstart', this.handleInput.bind(this));
-
     if (this.img.complete) {
         this.loadElevationImage();
     } else {
@@ -78,82 +43,9 @@ SandyImage.prototype.init = function () {
     }
 };
 
-SandyImage.prototype.handleInput = function (event) {
-    event.preventDefault();
-
-    let clientX, clientY;
-    if (event.type === 'touchmove' || event.type === 'touchstart') {
-        clientX = event.touches[0].clientX;
-        clientY = event.touches[0].clientY;
-    } else {
-        clientX = event.clientX;
-        clientY = event.clientY;
-    }
-
-    this.mouseX = clientX - this.canvas.offsetLeft + window.scrollX;
-    this.mouseY = clientY - this.canvas.offsetTop + window.scrollY;
-};
-
 SandyImage.prototype.loadElevationImage = function () {
-    this.canvas.width = this.img.width;
-    this.canvas.height = this.img.height;
-    this.ctx.drawImage(this.img, 0, 0);
-
-    this.buildElevationData();
     this.createGrains();
     this.startWorker();
-    this.startAnimation();
-};
-
-// We need to read the image data to use the color (grayscale) to form an elevation array
-// which will be used to determine how many grains can be placed at certain pixels
-SandyImage.prototype.buildElevationData = function () {
-    this.elevationData = new Uint8Array(this.canvas.height * this.canvas.width);
-
-    const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
-    const data = imageData.data;
-
-    // We will also want to normalize the elevation data
-    let minElevation = Infinity;
-    let maxElevation = -Infinity;
-
-    let index = 0;
-    for (let y = 0; y < this.canvas.height; y++) {
-        for (let x = 0; x < this.canvas.width; x++) {
-            const pixelIndex = (y * this.canvas.width + x) * 4;
-            const red = data[pixelIndex];
-            const green = data[pixelIndex + 1];
-            const blue = data[pixelIndex + 2];
-
-            let elevation = (red + green + blue) / 3;
-
-            // Dark colors are hills; light colors are approaching water
-            elevation = 255 - elevation;
-
-            minElevation = Math.min(minElevation, elevation);
-            maxElevation = Math.max(maxElevation, elevation);
-
-            this.elevationData[index] = elevation;
-            index++;
-        }
-    }
-
-    // Normalize the elevation data
-    let total = 0;
-    for (let i = 0; i < this.elevationData.length; i++) {
-        const norm = (this.elevationData[i] - minElevation) / (maxElevation - minElevation);
-        const scaled = Math.floor(norm * this.steps * this.stepDepth);
-
-        this.elevationData[i] = scaled;
-        total += scaled / this.stepDepth;
-    }
-
-    let squareArea = this.size * this.size;
-    this.grainCount = Math.floor(total / squareArea);
-
-    if (this.debug) {
-        console.log('total', total, 'grainCount', this.grainCount);
-    }
 };
 
 SandyImage.prototype.createGrains = function () {
@@ -177,94 +69,20 @@ SandyImage.prototype.createGrains = function () {
 SandyImage.prototype.startWorker = function () {
     this.worker = new Worker('./sandy-worker.js');
 
-    let totalElapsedTime = 0;
-
     // Update the canvas when there are new grain positions
     this.worker.onmessage = function (event) {
         if (event.data === "ready") {
             // Send the initial data to the worker
             this.worker.postMessage({
-                elevationData: this.elevationData,
                 grains: this.grains,
+                offscreen_canvas: this.offscreen_canvas,
                 size: this.size,
-                width: this.canvas.width,
-                height: this.canvas.height,
-                repelRadius: this.repelRadius,
                 dampingFactor: this.dampingFactor,
-                steps: this.steps,
-                stepDepth: this.stepDepth,
-                debug: this.debug,
-            });
-
-            this.updating = false;
-            return;
-        }
-
-        const startTime = performance.now();
-
-        this.updating = false;
-
-        const alphaData = new Uint8ClampedArray(event.data.alphaData.buffer);
-
-        // Create a full RGBA array with black color and our alpha values
-        const imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
-        const rgba = imageData.data;
-
-        for (let i = 0; i < alphaData.length; i++) {
-            const rgbaIndex = i * 4;
-            rgba[rgbaIndex] = 0;     // R = 0 (black)
-            rgba[rgbaIndex + 1] = 0; // G = 0 (black)
-            rgba[rgbaIndex + 2] = 0; // B = 0 (black)
-            rgba[rgbaIndex + 3] = alphaData[i]; // Alpha from our buffer
-        }
-
-        this.ctx.putImageData(imageData, 0, 0);
-
-        if (this.debug) {
-            const endTime = performance.now();
-            totalElapsedTime += endTime - startTime;
-
-            if (this.frame % 50 === 0) {
-                const averageFPS = 1000 / (totalElapsedTime / this.frame);
-                console.log(`[${this.frame}]`, 'drawing averageFPS', averageFPS);
-            }
+            }, [this.offscreen_canvas]);
         }
     }.bind(this);
 };
 
-SandyImage.prototype.startAnimation = function () {
-    let lastFrameTime = performance.now();
-
-    const animationLoop = function () {
-        const currentTime = performance.now();
-        const elapsedTime = currentTime - lastFrameTime;
-
-        // Don't go over the target FPS
-        if (elapsedTime >= this.targetFrameTime && !this.updating) {
-            this.updating = true;
-
-            const { globalVx, globalVy } = this.breezeFn({
-                frame: this.frame,
-                globalVx: this.globalVx,
-                globalVy: this.globalVy,
-            });
-
-            this.globalVx = globalVx;
-            this.globalVy = globalVy;
-
-            this.worker.postMessage({
-                action: 'update',
-                mouseX: this.mouseX,
-                mouseY: this.mouseY,
-                globalVx,
-                globalVy,
-            });
-            lastFrameTime = currentTime;
-            this.frame++;
-        }
-
-        requestAnimationFrame(animationLoop);
-    }.bind(this);
-
-    animationLoop();
-};
+SandyImage.prototype.nextFrame = function () {
+    this.worker.postMessage({});
+}

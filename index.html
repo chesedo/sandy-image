@@ -126,14 +126,14 @@
 
             <script src="sandy.js"></script>
             <script>
-                new SandyImage('#sandy-image', {
-                    size: 4,
-                    steps: 7,
-                    stepDepth: 3,
+                let sandy_image = new SandyImage('#sandy-image', {
+                    size: 3.0,
                     dampingFactor: 0.9,
                 });
             </script>
         </div>
+
+        <button onclick="sandy_image.nextFrame()">Next Frame</button>
 
         <div id="docs" class="docs"></div>
     </div>
