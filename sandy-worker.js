@@ -1,7 +1,7 @@
 importScripts('./sandy-image.js')
 
 const { Image } = wasm_bindgen;
-function RenderEngine(canvas, size) {
+function RenderEngine(canvas, size, grains) {
     this.canvas = canvas;
     this.gl = canvas.getContext('webgl2');
 
@@ -10,6 +10,7 @@ function RenderEngine(canvas, size) {
     }
 
     this.size = size;
+    this.grains = grains;
 
     // Initialize WebGL context
     this.initShaders();
@@ -135,14 +136,14 @@ RenderEngine.prototype.initBuffers = function () {
     gl.bindVertexArray(null);
 }
 
-RenderEngine.prototype.updateGrains = function (grainsData) {
+RenderEngine.prototype.updateGrains = function () {
     const gl = this.gl;
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.grainBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, grainsData, gl.DYNAMIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, this.grains, gl.DYNAMIC_DRAW);
 }
 
-RenderEngine.prototype.render = function (count) {
+RenderEngine.prototype.render = function () {
     const gl = this.gl;
 
     // Clear canvas
@@ -158,7 +159,7 @@ RenderEngine.prototype.render = function (count) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     // Draw points
-    gl.drawArrays(gl.POINTS, 0, count);
+    gl.drawArrays(gl.POINTS, 0, this.grains.length / 4);
 
     // Cleanup
     gl.bindVertexArray(null);
@@ -176,11 +177,10 @@ async function init_wasm() {
 
     function animate() {
         image.next();
-        const grains = image.grains();
 
         // Update and render
-        renderEngine.updateGrains(grains);
-        renderEngine.render(grains.length / 4);
+        renderEngine.updateGrains();
+        renderEngine.render();
 
         animationFrameId = requestAnimationFrame(animate);
     }
@@ -190,7 +190,7 @@ async function init_wasm() {
             let canvas = event.data.offscreen_canvas;
             image = Image.new(event.data.grains, event.data.dampingFactor, canvas.width, canvas.height);
 
-            renderEngine = new RenderEngine(canvas, event.data.size);
+            renderEngine = new RenderEngine(canvas, event.data.size, event.data.grains);
 
             console.log("Done loading image");
 

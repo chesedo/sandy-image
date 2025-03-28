@@ -1,16 +1,9 @@
+use js_sys::Float32Array;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen]
-pub struct Grain {
-    x: f32,
-    y: f32,
-    vx: f32,
-    vy: f32,
-}
-
-#[wasm_bindgen]
 pub struct Image {
-    grains: Vec<Grain>,
+    grains: Float32Array,
     damping_factor: f32,
     width: f32,
     height: f32,
@@ -19,17 +12,7 @@ pub struct Image {
 #[wasm_bindgen]
 impl Image {
     /// Create a new image for the elevation data, initial grains, and other parameters
-    pub fn new(grains: &[f32], damping_factor: f32, width: f32, height: f32) -> Self {
-        let grains = grains
-            .chunks(4)
-            .map(|chunk| Grain {
-                x: chunk[0],
-                y: chunk[1],
-                vx: chunk[2],
-                vy: chunk[3],
-            })
-            .collect();
-
+    pub fn new(grains: Float32Array, damping_factor: f32, width: f32, height: f32) -> Self {
         Self {
             grains,
             damping_factor,
@@ -39,39 +22,38 @@ impl Image {
     }
 
     pub fn next(&mut self) {
-        for grain in self.grains.iter_mut() {
-            grain.x += grain.vx;
-            grain.y += grain.vy;
+        for i in 0..self.grains.length() / 4 {
+            let mut x = self.grains.get_index(i * 4);
+            let mut y = self.grains.get_index(i * 4 + 1);
+            let mut vx = self.grains.get_index(i * 4 + 2);
+            let mut vy = self.grains.get_index(i * 4 + 3);
 
-            if grain.x < 0.0 {
-                grain.x *= -1.0;
-                grain.vx *= -1.0;
-            } else if grain.x > self.width {
-                grain.x = self.width - (grain.x - self.width);
-                grain.vx *= -1.0;
+            x += vx;
+            y += vy;
+
+            if x < 0.0 {
+                x *= -1.0;
+                vx *= -1.0;
+            } else if x > self.width {
+                x = self.width - (x - self.width);
+                vx *= -1.0;
             }
 
-            if grain.y < 0.0 {
-                grain.y *= -1.0;
-                grain.vy *= -1.0;
-            } else if grain.y > self.height {
-                grain.y = self.height - (grain.y - self.height);
-                grain.vy *= -1.0;
+            if y < 0.0 {
+                y *= -1.0;
+                vy *= -1.0;
+            } else if y > self.height {
+                y = self.height - (y - self.height);
+                vy *= -1.0;
             }
 
-            grain.vx *= self.damping_factor;
-            grain.vy *= self.damping_factor;
+            vx *= self.damping_factor;
+            vy *= self.damping_factor;
+
+            self.grains.set_index(i * 4, x);
+            self.grains.set_index(i * 4 + 1, y);
+            self.grains.set_index(i * 4 + 2, vx);
+            self.grains.set_index(i * 4 + 3, vy);
         }
-    }
-
-    pub fn grains(&self) -> js_sys::Float32Array {
-        let grains: Vec<_> = self
-            .grains
-            .iter()
-            .map(|grain| vec![grain.x, grain.y, grain.vx, grain.vy])
-            .flatten()
-            .collect();
-
-        js_sys::Float32Array::from(grains.as_slice())
     }
 }
