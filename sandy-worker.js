@@ -92,6 +92,11 @@ RenderEngine.prototype.initShaders = function () {
     this.positionAttrib = gl.getAttribLocation(this.program, 'aGrainData');
     this.sizeUniform = gl.getUniformLocation(this.program, 'uSize');
     this.canvasSizeUniform = gl.getUniformLocation(this.program, 'uCanvasSize');
+
+    // Set the uniforms which never change immediately
+    gl.useProgram(this.program);
+    gl.uniform1f(this.sizeUniform, this.size);
+    gl.uniform2f(this.canvasSizeUniform, this.canvas.width, this.canvas.height);
 }
 
 RenderEngine.prototype.compileShader = function (type, source) {
@@ -147,10 +152,6 @@ RenderEngine.prototype.render = function (count) {
     // Use shader program
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);
-
-    // Set the uniforms
-    gl.uniform1f(this.sizeUniform, this.size);
-    gl.uniform2f(this.canvasSizeUniform, this.canvas.width, this.canvas.height);
 
     // Enable point sprites
     gl.enable(gl.BLEND);
