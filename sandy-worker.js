@@ -89,10 +89,8 @@ RenderEngine.prototype.initShaders = function () {
     }
 
     // Store attribute and uniform locations
-    this.positionAttrib = gl.getAttribLocation(this.program, 'aPosition');
+    this.positionAttrib = gl.getAttribLocation(this.program, 'aGrainData');
     this.sizeUniform = gl.getUniformLocation(this.program, 'uSize');
-
-    // Additional uniform for canvas size
     this.canvasSizeUniform = gl.getUniformLocation(this.program, 'uCanvasSize');
 }
 
@@ -171,8 +169,20 @@ async function init_wasm() {
 
     let image;
     let renderEngine;
+    let animationFrameId;
 
     self.postMessage("ready");
+
+    function animate() {
+        image.next();
+        const grains = image.grains();
+
+        // Update and render
+        renderEngine.updateGrains(grains);
+        renderEngine.render(grains.length / 4);
+
+        animationFrameId = requestAnimationFrame(animate);
+    }
 
     self.onmessage = async event => {
         if (event.data.grains) {
@@ -182,16 +192,13 @@ async function init_wasm() {
             renderEngine = new RenderEngine(canvas, event.data.size);
 
             console.log("Done loading image");
-        } else {
-            image.next();
+
+            animate();
+        } else if (event.data.action === "stop") {
+            cancelAnimationFrame(animationFrameId);
+        } else if (event.data.action === "start") {
+            animate();
         }
-        const grains = image.grains();
-
-        // Update and render
-        renderEngine.updateGrains(grains);
-        renderEngine.render(grains.length / 4);
-
-        console.log(grains);
     };
 }
 

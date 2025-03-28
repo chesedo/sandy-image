@@ -128,12 +128,23 @@
             <script>
                 let sandy_image = new SandyImage('#sandy-image', {
                     size: 3.0,
-                    dampingFactor: 0.9,
+                    dampingFactor: 0.99,
                 });
+
+                let isAnimating = true;
+
+                function toggleAnimation() {
+                    if (isAnimating) {
+                        sandy_image.worker.postMessage({ action: 'stop' });
+                    } else {
+                        sandy_image.worker.postMessage({ action: 'start' });
+                    }
+                    isAnimating = !isAnimating;
+                }
             </script>
         </div>
 
-        <button onclick="sandy_image.nextFrame()">Next Frame</button>
+        <button onclick="toggleAnimation()">Toggle Animation</button>
 
         <div id="docs" class="docs"></div>
     </div>
