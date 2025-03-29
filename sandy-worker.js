@@ -1,7 +1,7 @@
 importScripts('./sandy-image.js')
 
 const { Image } = wasm_bindgen;
-function RenderEngine(canvas, size, grains) {
+function RenderEngine(terrain, canvas, grains) {
     this.canvas = canvas;
     this.gl = canvas.getContext('webgl2');
 
@@ -9,7 +9,7 @@ function RenderEngine(canvas, size, grains) {
         throw new Error('WebGL2 not supported');
     }
 
-    this.size = size;
+    this.terrain = terrain;
     this.grains = grains;
 
     // Initialize WebGL context
@@ -25,7 +25,6 @@ RenderEngine.prototype.initShaders = function () {
     in vec4 aGrainData;  // x, y, vx, vy
 
     uniform vec2 uCanvasSize;  // width, height of canvas
-    uniform float uSize;
 
     // Pass velocity to fragment shader if needed
     out vec2 vVelocity;
@@ -40,7 +39,7 @@ RenderEngine.prototype.initShaders = function () {
         vec2 normalizedPos = position / uCanvasSize;
         gl_Position = vec4(normalizedPos * 2.0 - 1.0, 0.0, 1.0);
         
-        gl_PointSize = uSize;
+        gl_PointSize = 1.0;
         
         // Pass velocity to fragment shader
         vVelocity = velocity;
@@ -91,12 +90,10 @@ RenderEngine.prototype.initShaders = function () {
 
     // Store attribute and uniform locations
     this.positionAttrib = gl.getAttribLocation(this.program, 'aGrainData');
-    this.sizeUniform = gl.getUniformLocation(this.program, 'uSize');
     this.canvasSizeUniform = gl.getUniformLocation(this.program, 'uCanvasSize');
 
     // Set the uniforms which never change immediately
     gl.useProgram(this.program);
-    gl.uniform1f(this.sizeUniform, this.size);
     gl.uniform2f(this.canvasSizeUniform, this.canvas.width, this.canvas.height);
 }
 
@@ -187,10 +184,15 @@ async function init_wasm() {
 
     self.onmessage = async event => {
         if (event.data.grains) {
+            let terrain = event.data.terrain;
             let canvas = event.data.offscreen_canvas;
-            image = Image.new(event.data.grains, event.data.dampingFactor, canvas.width, canvas.height);
+            let width = event.data.width;
+            let height = event.data.height;
+            canvas.width = width;
+            canvas.height = height;
 
-            renderEngine = new RenderEngine(canvas, event.data.size, event.data.grains);
+            image = Image.new(terrain, event.data.grains, event.data.dampingFactor, width, height);
+            renderEngine = new RenderEngine(terrain, event.data.offscreen_canvas, event.data.grains);
 
             console.log("Done loading image");
 

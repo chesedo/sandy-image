@@ -1,4 +1,4 @@
-use js_sys::Float32Array;
+use js_sys::{Float32Array, Uint8Array};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen]
@@ -12,7 +12,13 @@ pub struct Image {
 #[wasm_bindgen]
 impl Image {
     /// Create a new image for the elevation data, initial grains, and other parameters
-    pub fn new(grains: Float32Array, damping_factor: f32, width: f32, height: f32) -> Self {
+    pub fn new(
+        terrain: Uint8Array,
+        grains: Float32Array,
+        damping_factor: f32,
+        width: f32,
+        height: f32,
+    ) -> Self {
         Self {
             grains,
             damping_factor,
