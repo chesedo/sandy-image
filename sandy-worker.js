@@ -1,6 +1,7 @@
 importScripts('./sandy-image.js')
 
 const { Image } = wasm_bindgen;
+
 function RenderEngine(terrain, canvas, grains) {
     this.canvas = canvas;
     this.gl = canvas.getContext('webgl2');
@@ -11,6 +12,13 @@ function RenderEngine(terrain, canvas, grains) {
 
     this.terrain = terrain;
     this.grains = grains;
+
+    // Initial zoom level (start zoomed in)
+    this.zoomLevel = 5.0; // Default zoom factor
+
+    // Initial panning position (center of canvas)
+    this.panX = 0;
+    this.panY = 0;
 
     // Initialize WebGL context
     this.initShaders();
@@ -25,6 +33,8 @@ RenderEngine.prototype.initShaders = function () {
     in vec4 aGrainData;  // x, y, vx, vy
 
     uniform vec2 uCanvasSize;  // width, height of canvas
+    uniform float uZoomLevel;  // zoom factor
+    uniform vec2 uPanOffset;   // pan offset
 
     // Pass velocity to fragment shader if needed
     out vec2 vVelocity;
@@ -35,11 +45,15 @@ RenderEngine.prototype.initShaders = function () {
         vec2 position = aGrainData.xy;
         vec2 velocity = aGrainData.zw;
         
+        // Apply zoom and pan
+        vec2 zoomedPos = position * uZoomLevel + uPanOffset;
+        
         // Normalize position (0 to 1) and then to clip space (-1 to 1)
-        vec2 normalizedPos = position / uCanvasSize;
+        vec2 normalizedPos = zoomedPos / uCanvasSize;
         gl_Position = vec4(normalizedPos * 2.0 - 1.0, 0.0, 1.0);
         
-        gl_PointSize = 1.0;
+        // Scale point size with zoom
+        gl_PointSize = max(1.0, uZoomLevel);
         
         // Pass velocity to fragment shader
         vVelocity = velocity;
@@ -91,10 +105,16 @@ RenderEngine.prototype.initShaders = function () {
     // Store attribute and uniform locations
     this.positionAttrib = gl.getAttribLocation(this.program, 'aGrainData');
     this.canvasSizeUniform = gl.getUniformLocation(this.program, 'uCanvasSize');
+    this.zoomLevelUniform = gl.getUniformLocation(this.program, 'uZoomLevel');
+    this.panOffsetUniform = gl.getUniformLocation(this.program, 'uPanOffset');
 
-    // Set the uniforms which never change immediately
+    // Set the canvas size uniform
     gl.useProgram(this.program);
     gl.uniform2f(this.canvasSizeUniform, this.canvas.width, this.canvas.height);
+
+    // Set initial zoom and pan
+    gl.uniform1f(this.zoomLevelUniform, this.zoomLevel);
+    gl.uniform2f(this.panOffsetUniform, this.panX, this.panY);
 }
 
 RenderEngine.prototype.compileShader = function (type, source) {
@@ -138,6 +158,23 @@ RenderEngine.prototype.updateGrains = function () {
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.grainBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, this.grains, gl.DYNAMIC_DRAW);
+}
+
+RenderEngine.prototype.setZoom = function (newZoomLevel) {
+    this.zoomLevel = Math.max(1.0, newZoomLevel);
+
+    const gl = this.gl;
+    gl.useProgram(this.program);
+    gl.uniform1f(this.zoomLevelUniform, this.zoomLevel);
+}
+
+RenderEngine.prototype.setPan = function (x, y) {
+    this.panX = x;
+    this.panY = y;
+
+    const gl = this.gl;
+    gl.useProgram(this.program);
+    gl.uniform2f(this.panOffsetUniform, this.panX, this.panY);
 }
 
 RenderEngine.prototype.render = function () {
@@ -188,11 +225,18 @@ async function init_wasm() {
             let canvas = event.data.offscreen_canvas;
             let width = event.data.width;
             let height = event.data.height;
-            canvas.width = width;
-            canvas.height = height;
+
+            // Set canvas size to be larger than the image by default
+            const scaleFactor = Math.max(5, Math.min(20, 900 / Math.max(width, height)));
+            canvas.width = width * scaleFactor;
+            canvas.height = height * scaleFactor;
 
             image = Image.new(terrain, event.data.grains, event.data.dampingFactor, width, height);
             renderEngine = new RenderEngine(terrain, event.data.offscreen_canvas, event.data.grains);
+
+            // Center the view
+            renderEngine.setPan((canvas.width - width * renderEngine.zoomLevel) / 2,
+                (canvas.height - height * renderEngine.zoomLevel) / 2);
 
             console.log("Done loading image");
 
@@ -201,6 +245,16 @@ async function init_wasm() {
             cancelAnimationFrame(animationFrameId);
         } else if (event.data.action === "start") {
             animate();
+        } else if (event.data.action === "zoom") {
+            if (renderEngine) {
+                renderEngine.setZoom(event.data.zoomLevel);
+                // Adjust pan to keep view centered when zooming
+                renderEngine.setPan(event.data.panX, event.data.panY);
+            }
+        } else if (event.data.action === "pan") {
+            if (renderEngine) {
+                renderEngine.setPan(event.data.panX, event.data.panY);
+            }
         }
     };
 }

@@ -61,46 +61,39 @@
             }
         }
 
-        .preview {
-            align-content: center;
-            text-align: center;
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
         }
 
-        .docs {
-            padding: 20px;
-            background-color: #fff;
-            border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
         }
 
-        pre {
-            background-color: #f5f5f5;
-            padding: 10px;
-            border-radius: 5px;
-            overflow-x: auto;
+        button:hover {
+            background-color: #45a049;
         }
 
-        code {
-            font-family: monospace;
-        }
-
-        ul>li {
-            margin-bottom: 10px;
+        .zoom-info {
+            margin-top: 5px;
+            font-size: 12px;
+            color: #666;
         }
 
         @media (min-width: 1000px) {
             .container {
                 flex-direction: row;
-            }
-
-            .preview {
-                width: 45%;
-                max-width: 450px;
-            }
-
-            .docs {
-                overflow-y: auto;
-                max-height: calc(100vh - 70px);
             }
         }
     </style>
@@ -123,40 +116,49 @@
         </a>
         <div class="preview">
             <img id="sandy-image" src="circle.png" />
+            <div class="controls">
+                <button id="toggle-animation">Pause Animation</button>
+                <button id="reset-view">Reset View</button>
+            </div>
+            <div class="zoom-info">
+                Use mouse wheel to zoom in/out. Click and drag to pan.
+            </div>
 
             <script src="sandy.js"></script>
             <script>
                 let sandy_image = new SandyImage('#sandy-image', {
                     dampingFactor: 0.99,
+                    initialZoom: 15.0,
+                    minZoom: 1.0,
+                    maxZoom: 20.0,
+                    zoomSpeed: 0.1
                 });
 
                 let isAnimating = true;
+                const toggleButton = document.getElementById('toggle-animation');
 
-                function toggleAnimation() {
+                toggleButton.addEventListener('click', function () {
                     if (isAnimating) {
                         sandy_image.worker.postMessage({ action: 'stop' });
+                        toggleButton.textContent = 'Resume Animation';
                     } else {
                         sandy_image.worker.postMessage({ action: 'start' });
+                        toggleButton.textContent = 'Pause Animation';
                     }
                     isAnimating = !isAnimating;
-                }
+                });
+
+                const resetButton = document.getElementById('reset-view');
+                resetButton.addEventListener('click', function () {
+                    // Reset zoom and pan to initial values
+                    sandy_image.zoomLevel = 15.0;
+                    sandy_image.panX = (sandy_image.canvas.width - sandy_image.img.width * sandy_image.zoomLevel) / 2;
+                    sandy_image.panY = (sandy_image.canvas.height - sandy_image.img.height * sandy_image.zoomLevel) / 2;
+                    sandy_image.updateZoomAndPan();
+                });
             </script>
         </div>
-
-        <button onclick="toggleAnimation()">Toggle Animation</button>
-
-        <div id="docs" class="docs"></div>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script>
-        fetch('README.md')
-            .then(response => response.text())
-            .then(markdown => {
-                const html = marked.parse(markdown);
-                document.getElementById('docs').innerHTML = html;
-            });
-    </script>
 </body>
 
 </html>

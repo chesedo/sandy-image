@@ -10,10 +10,27 @@ function SandyImage(imgSelector, options) {
 
             return { x, y, vx, vy };
         },
+        initialZoom: 5.0,
+        minZoom: 1.0,
+        maxZoom: 20.0,
+        zoomSpeed: 0.1,
         ...options
     };
     this.dampingFactor = options.dampingFactor;
     this.createGrainFn = options.createGrainFn;
+
+    // Zoom parameters
+    this.zoomLevel = options.initialZoom;
+    this.minZoom = options.minZoom;
+    this.maxZoom = options.maxZoom;
+    this.zoomSpeed = options.zoomSpeed;
+
+    // Pan parameters
+    this.isPanning = false;
+    this.lastMouseX = 0;
+    this.lastMouseY = 0;
+    this.panX = 0;
+    this.panY = 0;
 
     this.grainCount = 10; // TODO remove
     this.grains = null;
@@ -34,10 +51,125 @@ SandyImage.prototype.init = function () {
     // Copy over image classes
     this.canvas.className = this.img.className;
 
+    // Add event listeners for zooming and panning
+    this.setupEventListeners();
+
     if (this.img.complete) {
         this.loadElevationImage();
     } else {
         this.img.addEventListener('load', this.loadElevationImage.bind(this));
+    }
+};
+
+SandyImage.prototype.setupEventListeners = function () {
+    // Add wheel event for zooming
+    this.canvas.addEventListener('wheel', this.handleWheel.bind(this), { passive: false });
+
+    // Add mouse events for panning
+    this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
+    window.addEventListener('mousemove', this.handleMouseMove.bind(this));
+    window.addEventListener('mouseup', this.handleMouseUp.bind(this));
+
+    // Add touch events for mobile devices
+    this.canvas.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: false });
+    window.addEventListener('touchmove', this.handleTouchMove.bind(this), { passive: false });
+    window.addEventListener('touchend', this.handleTouchEnd.bind(this));
+};
+
+SandyImage.prototype.handleWheel = function (event) {
+    event.preventDefault();
+
+    // Calculate zoom delta based on wheel direction
+    const delta = event.deltaY > 0 ? -this.zoomSpeed : this.zoomSpeed;
+    const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoomLevel + (this.zoomLevel * delta)));
+
+    // Get mouse position relative to canvas
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+
+    // Calculate world point under mouse before zoom
+    const worldX = (mouseX - this.panX) / this.zoomLevel;
+    const worldY = (mouseY - this.panY) / this.zoomLevel;
+
+    // Apply new zoom
+    this.zoomLevel = newZoom;
+
+    // Calculate new pan to keep mouse over the same world point
+    const newPanX = mouseX - worldX * this.zoomLevel;
+    const newPanY = mouseY - worldY * this.zoomLevel;
+
+    this.panX = newPanX;
+    this.panY = newPanY;
+
+    // Send updated zoom and pan to worker
+    this.updateZoomAndPan();
+};
+
+SandyImage.prototype.handleMouseDown = function (event) {
+    this.isPanning = true;
+    this.lastMouseX = event.clientX;
+    this.lastMouseY = event.clientY;
+    this.canvas.style.cursor = 'grabbing';
+};
+
+SandyImage.prototype.handleMouseMove = function (event) {
+    if (this.isPanning) {
+        const deltaX = event.clientX - this.lastMouseX;
+        const deltaY = event.clientY - this.lastMouseY;
+
+        this.panX += deltaX;
+        this.panY -= deltaY;
+
+        this.lastMouseX = event.clientX;
+        this.lastMouseY = event.clientY;
+
+        this.updateZoomAndPan();
+    }
+};
+
+SandyImage.prototype.handleMouseUp = function () {
+    this.isPanning = false;
+    this.canvas.style.cursor = 'grab';
+};
+
+SandyImage.prototype.handleTouchStart = function (event) {
+    event.preventDefault();
+    if (event.touches.length === 1) {
+        this.isPanning = true;
+        this.lastMouseX = event.touches[0].clientX;
+        this.lastMouseY = event.touches[0].clientY;
+    }
+};
+
+SandyImage.prototype.handleTouchMove = function (event) {
+    event.preventDefault();
+    if (this.isPanning && event.touches.length === 1) {
+        const deltaX = event.touches[0].clientX - this.lastMouseX;
+        const deltaY = event.touches[0].clientY - this.lastMouseY;
+
+        this.panX += deltaX;
+        this.panY += deltaY;
+
+        this.lastMouseX = event.touches[0].clientX;
+        this.lastMouseY = event.touches[0].clientY;
+
+        this.updateZoomAndPan();
+    }
+};
+
+SandyImage.prototype.handleTouchEnd = function () {
+    this.isPanning = false;
+};
+
+SandyImage.prototype.updateZoomAndPan = function () {
+    if (this.worker) {
+        this.worker.postMessage({
+            action: 'zoom',
+            zoomLevel: this.zoomLevel,
+            panX: this.panX,
+            panY: this.panY
+        });
     }
 };
 
@@ -60,6 +192,9 @@ SandyImage.prototype.loadElevationImage = function () {
 
     this.createGrains();
     this.startWorker(imageData);
+
+    // Set initial cursor style
+    this.canvas.style.cursor = 'grab';
 };
 
 SandyImage.prototype.createGrains = function () {
@@ -94,6 +229,12 @@ SandyImage.prototype.startWorker = function (imageData) {
                 offscreen_canvas: this.offscreen_canvas,
                 dampingFactor: this.dampingFactor,
             }, [this.offscreen_canvas]);
+
+            // Center the image initially
+            // This will be calculated more precisely in the worker based on the actual canvas dimensions
+            setTimeout(() => {
+                this.updateZoomAndPan();
+            }, 100);
         }
     }.bind(this);
 };
