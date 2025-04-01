@@ -148,6 +148,8 @@ pub struct Image {
     size: u32,
     /// Width of the image
     width: u32,
+    /// Total pixels in image
+    total_pixels: usize,
     /// Radius around mouse which grains should repel from
     repel_radius: u32,
     /// Repel radius squared for faster calculations
@@ -166,6 +168,8 @@ pub struct Image {
     top_bound: f32,
     /// Bottom side of the canvas in which the grains should stay within
     bottom_bound: f32,
+    /// How transparent the grains should be
+    alpha: u8,
 }
 
 #[wasm_bindgen]
@@ -179,6 +183,8 @@ impl Image {
         height: u32,
         damping_factor: f32,
         repel_radius: u32,
+        steps: u8,
+        steps_depth: u8,
     ) -> Self {
         let elevation_data = elevation_data
             .iter()
@@ -205,6 +211,7 @@ impl Image {
             grains,
             size,
             width,
+            total_pixels: (width * height) as usize,
             repel_radius,
             repel_radius_squared: (repel_radius * repel_radius) as f32,
             damping_factor,
@@ -216,6 +223,8 @@ impl Image {
             right_bound: (width - size) as f32,
             top_bound: 0.0,
             bottom_bound: (height - size) as f32,
+
+            alpha: 255 / (steps * steps_depth),
         }
     }
 
@@ -226,8 +235,9 @@ impl Image {
         global_vy: f32,
         mouse_x: f32,
         mouse_y: f32,
-    ) -> js_sys::Float32Array {
+    ) -> js_sys::Uint8Array {
         let mut elevation_data = self.elevation_data.clone();
+        let mut alpha_buffer = vec![0u8; self.total_pixels];
 
         let repel_x_min = mouse_x - self.repel_radius as f32;
         let repel_x_max = mouse_x + self.repel_radius as f32;
@@ -264,23 +274,46 @@ impl Image {
                 self.damping_factor,
             );
 
-            Self::update_elevation_data(grain, &mut elevation_data, self.size, self.width);
+            Self::update_elevation_and_buffer_data(
+                grain,
+                &mut elevation_data,
+                &mut alpha_buffer,
+                self.size,
+                self.width,
+                self.alpha,
+            );
         }
 
-        let positions: Vec<f32> = self.grains.iter().flat_map(|g| vec![g.x, g.y]).collect();
-        js_sys::Float32Array::from(positions.as_slice())
+        // Return the buffer
+        js_sys::Uint8Array::from(&alpha_buffer[..])
     }
 
     /// Subtract 1 from the elevation data copy below the grain
+    /// And update the alpha buffer to make the grain more visible
     #[inline]
-    fn update_elevation_data(grain: &Grain, elevation_data: &mut Vec<i8>, size: u32, width: u32) {
+    fn update_elevation_and_buffer_data(
+        grain: &Grain,
+        elevation_data: &mut Vec<i8>,
+        alpha_buffer: &mut [u8],
+        size: u32,
+        width: u32,
+        alpha: u8,
+    ) {
         let start_x = grain.x.floor() as u32;
         let start_y = grain.y.floor() as u32;
 
         (0..size).for_each(|col| {
             (0..size).for_each(|row| {
                 let row_index = (row + start_y) * width;
-                elevation_data[(col + start_x + row_index) as usize] -= 1;
+                let index = (col + start_x + row_index) as usize;
+
+                elevation_data[index] -= 1;
+
+                alpha_buffer[index] = if 255 - alpha_buffer[index] < alpha {
+                    255
+                } else {
+                    alpha_buffer[index] + alpha
+                };
             });
         });
     }

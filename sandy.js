@@ -191,6 +191,8 @@ SandyImage.prototype.startWorker = function () {
                 height: this.canvas.height,
                 repelRadius: this.repelRadius,
                 dampingFactor: this.dampingFactor,
+                steps: this.steps,
+                stepDepth: this.stepDepth,
                 debug: this.debug,
             });
 
@@ -201,21 +203,22 @@ SandyImage.prototype.startWorker = function () {
         const startTime = performance.now();
 
         this.updating = false;
-        const updatedGrains = event.data.grains;
 
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        const alphaData = new Uint8ClampedArray(event.data.alphaData.buffer);
 
-        this.ctx.beginPath();
+        // Create a full RGBA array with black color and our alpha values
+        const imageData = this.ctx.createImageData(this.canvas.width, this.canvas.height);
+        const rgba = imageData.data;
 
-        this.ctx.fillStyle = `rgba(0, 0, 0, ${1.0 / this.steps / this.stepDepth})`;
-
-        for (let i = 0; i < updatedGrains.length; i += 2) {
-            const x = updatedGrains[i];
-            const y = updatedGrains[i + 1];
-            this.ctx.fillRect(x, y, this.size, this.size);
+        for (let i = 0; i < alphaData.length; i++) {
+            const rgbaIndex = i * 4;
+            rgba[rgbaIndex] = 0;     // R = 0 (black)
+            rgba[rgbaIndex + 1] = 0; // G = 0 (black)
+            rgba[rgbaIndex + 2] = 0; // B = 0 (black)
+            rgba[rgbaIndex + 3] = alphaData[i]; // Alpha from our buffer
         }
 
-        this.ctx.fill();
+        this.ctx.putImageData(imageData, 0, 0);
 
         if (this.debug) {
             const endTime = performance.now();
