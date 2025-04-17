@@ -4,9 +4,7 @@
   "description": "Create a mesmerizing sand animation effect by drawing an `<img>` tag in grayscale using sand grains ",
   "main": "sandy.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "wasm-pack build --target no-modules --release --no-pack --no-typescript --out-name sandy-image; cp pkg/sandy-image* ./",
-    "dev": "concurrently \"http-server -c-1\" \"cargo watch -q -s 'npm run build'\""
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
@@ -25,9 +23,5 @@
   "bugs": {
     "url": "https://github.com/chesedo/sandy-image/issues"
   },
-  "homepage": "https://chesedo.github.io/sandy-image",
-  "dependencies": {
-    "concurrently": "^9.0.1",
-    "http-server": "^14.1.1"
-  }
+  "homepage": "https://chesedo.github.io/sandy-image"
 }
