@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>Sandy Image Library</title>
+    <title>Sandy Image Library - 3D View</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body {
@@ -61,6 +61,12 @@
             }
         }
 
+        .preview {
+            align-content: center;
+            text-align: center;
+            position: relative;
+        }
+
         .controls {
             margin-top: 15px;
             display: flex;
@@ -85,10 +91,13 @@
             background-color: #45a049;
         }
 
-        .zoom-info {
+        .control-info {
             margin-top: 5px;
             font-size: 12px;
             color: #666;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         @media (min-width: 1000px) {
@@ -97,7 +106,6 @@
             }
         }
     </style>
-    <script defer data-domain="chesedo.me/sandy-image" src="https://plausible.io/js/script.outbound-links.js"></script>
 </head>
 
 <body>
@@ -115,23 +123,26 @@
             </svg>
         </a>
         <div class="preview">
+            <h2>3D Particle Visualization</h2>
             <img id="sandy-image" src="circle.png" />
             <div class="controls">
                 <button id="toggle-animation">Pause Animation</button>
                 <button id="reset-view">Reset View</button>
+                <button id="top-view">Top View</button>
+                <button id="front-view">Front View</button>
+                <button id="side-view">Side View</button>
             </div>
-            <div class="zoom-info">
-                Use mouse wheel to zoom in/out. Click and drag to pan.
+            <div class="control-info">
+                <p><strong>Mouse Controls:</strong> Left-click drag to rotate, right-click drag to pan, scroll wheel to
+                    zoom in/out.</p>
+                <p><strong>Touch Controls:</strong> One finger to rotate, two fingers to pan and pinch-zoom.</p>
             </div>
 
             <script src="sandy.js"></script>
             <script>
                 let sandy_image = new SandyImage('#sandy-image', {
-                    dampingFactor: 0.99,
-                    initialZoom: 15.0,
-                    minZoom: 1.0,
-                    maxZoom: 20.0,
-                    zoomSpeed: 0.1
+                    dampingFactor: 0.999,
+                    initialZoom: -140
                 });
 
                 let isAnimating = true;
@@ -150,11 +161,32 @@
 
                 const resetButton = document.getElementById('reset-view');
                 resetButton.addEventListener('click', function () {
-                    // Reset zoom and pan to initial values
-                    sandy_image.zoomLevel = 15.0;
-                    sandy_image.panX = (sandy_image.canvas.width - sandy_image.img.width * sandy_image.zoomLevel) / 2;
-                    sandy_image.panY = (sandy_image.canvas.height - sandy_image.img.height * sandy_image.zoomLevel) / 2;
-                    sandy_image.updateZoomAndPan();
+                    // Reset camera to initial position
+                    sandy_image.rotationX = 0.0;
+                    sandy_image.rotationY = 0.0;
+                    sandy_image.panX = 0;
+                    sandy_image.panY = 0;
+                    sandy_image.panZ = -140;
+                    sandy_image.updateCamera();
+                });
+
+                // Preset view buttons
+                document.getElementById('top-view').addEventListener('click', function () {
+                    sandy_image.rotationX = 0.0;
+                    sandy_image.rotationY = 0.0;
+                    sandy_image.updateCamera();
+                });
+
+                document.getElementById('front-view').addEventListener('click', function () {
+                    sandy_image.rotationX = Math.PI / 2 - 0.1;
+                    sandy_image.rotationY = 0.0;
+                    sandy_image.updateCamera();
+                });
+
+                document.getElementById('side-view').addEventListener('click', function () {
+                    sandy_image.rotationX = Math.PI / 2 - 0.1;
+                    sandy_image.rotationY = Math.PI / 2;
+                    sandy_image.updateCamera();
                 });
             </script>
         </div>

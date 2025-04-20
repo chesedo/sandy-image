@@ -10,27 +10,25 @@ function SandyImage(imgSelector, options) {
 
             return { x, y, vx, vy };
         },
-        initialZoom: 5.0,
-        minZoom: 1.0,
-        maxZoom: 20.0,
-        zoomSpeed: 0.1,
+        initialZoom: -20,
         ...options
     };
     this.dampingFactor = options.dampingFactor;
     this.createGrainFn = options.createGrainFn;
 
-    // Zoom parameters
-    this.zoomLevel = options.initialZoom;
-    this.minZoom = options.minZoom;
-    this.maxZoom = options.maxZoom;
-    this.zoomSpeed = options.zoomSpeed;
+    // 3D navigation parameters
+    this.panX = 0;
+    this.panY = 0;
+    this.panZ = options.initialZoom;
+    this.rotationX = 0.5;  // Initial X rotation (in radians)
+    this.rotationY = 0.0;  // Initial Y rotation (in radians)
 
-    // Pan parameters
+    // Mouse/touch control state
+    this.isRotating = false;
     this.isPanning = false;
     this.lastMouseX = 0;
     this.lastMouseY = 0;
-    this.panX = 0;
-    this.panY = 0;
+    this.mouseButton = 0;  // 0 = left button, 2 = right button
 
     this.grainCount = 10; // TODO remove
     this.grains = null;
@@ -62,11 +60,12 @@ SandyImage.prototype.init = function () {
 };
 
 SandyImage.prototype.setupEventListeners = function () {
-    // Add wheel event for zooming
+    // Add wheel event for zooming (changing Z distance)
     this.canvas.addEventListener('wheel', this.handleWheel.bind(this), { passive: false });
 
-    // Add mouse events for panning
+    // Add mouse events for rotating and panning
     this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
+    this.canvas.addEventListener('contextmenu', this.handleContextMenu.bind(this));
     window.addEventListener('mousemove', this.handleMouseMove.bind(this));
     window.addEventListener('mouseup', this.handleMouseUp.bind(this));
 
@@ -76,99 +75,204 @@ SandyImage.prototype.setupEventListeners = function () {
     window.addEventListener('touchend', this.handleTouchEnd.bind(this));
 };
 
+
+SandyImage.prototype.handleContextMenu = function (event) {
+    // Prevent context menu from appearing on right-click
+    event.preventDefault();
+};
+
 SandyImage.prototype.handleWheel = function (event) {
     event.preventDefault();
 
     // Calculate zoom delta based on wheel direction
-    const delta = event.deltaY > 0 ? -this.zoomSpeed : this.zoomSpeed;
-    const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoomLevel + (this.zoomLevel * delta)));
+    const delta = event.deltaY > 0 ? -1 : 1;
+    const zoomSpeed = 2.0;
 
-    // Get mouse position relative to canvas
-    const rect = this.canvas.getBoundingClientRect();
-    const mouseX = event.clientX - rect.left;
-    const mouseY = event.clientY - rect.top;
+    // Update camera distance
+    this.panZ += delta * zoomSpeed;
 
-    // Calculate world point under mouse before zoom
-    const worldX = (mouseX - this.panX) / this.zoomLevel;
-    const worldY = (mouseY - this.panY) / this.zoomLevel;
-
-    // Apply new zoom
-    this.zoomLevel = newZoom;
-
-    // Calculate new pan to keep mouse over the same world point
-    const newPanX = mouseX - worldX * this.zoomLevel;
-    const newPanY = mouseY - worldY * this.zoomLevel;
-
-    this.panX = newPanX;
-    this.panY = newPanY;
-
-    // Send updated zoom and pan to worker
-    this.updateZoomAndPan();
+    // Send updated camera parameters to worker
+    this.updateCamera();
 };
 
 SandyImage.prototype.handleMouseDown = function (event) {
-    this.isPanning = true;
+    event.preventDefault();
+
+    this.mouseButton = event.button;
+
+    if (event.button === 0) {  // Left mouse button for rotation
+        this.isRotating = true;
+        this.canvas.style.cursor = 'grabbing';
+    } else if (event.button === 2) {  // Right mouse button for panning
+        this.isPanning = true;
+        this.canvas.style.cursor = 'move';
+    }
+
     this.lastMouseX = event.clientX;
     this.lastMouseY = event.clientY;
-    this.canvas.style.cursor = 'grabbing';
 };
 
 SandyImage.prototype.handleMouseMove = function (event) {
-    if (this.isPanning) {
+    if (this.isRotating) {
+        // Calculate rotation delta
         const deltaX = event.clientX - this.lastMouseX;
         const deltaY = event.clientY - this.lastMouseY;
 
-        this.panX += deltaX;
-        this.panY -= deltaY;
+        // Update rotation angles (convert pixels to radians)
+        this.rotationY += deltaX * 0.01;
+        this.rotationX += deltaY * 0.01;
+
+        // Limit vertical rotation to avoid gimbal lock
+        this.rotationX = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, this.rotationX));
 
         this.lastMouseX = event.clientX;
         this.lastMouseY = event.clientY;
 
-        this.updateZoomAndPan();
+        // Send updated rotation to worker
+        this.updateCamera();
+    } else if (this.isPanning) {
+        // Calculate pan delta
+        const deltaX = event.clientX - this.lastMouseX;
+        const deltaY = event.clientY - this.lastMouseY;
+
+        // Pan speed depends on zoom level (faster pan when zoomed out)
+        const panSpeed = 0.05 * (Math.abs(this.panZ) / 20);
+
+        // Update pan position
+        this.panX += deltaX * panSpeed;
+        this.panY -= deltaY * panSpeed; // Invert Y for natural panning
+
+        this.lastMouseX = event.clientX;
+        this.lastMouseY = event.clientY;
+
+        // Send updated pan position to worker
+        this.updateCamera();
     }
 };
 
-SandyImage.prototype.handleMouseUp = function () {
-    this.isPanning = false;
-    this.canvas.style.cursor = 'grab';
+SandyImage.prototype.handleMouseUp = function (event) {
+    if (this.isRotating) {
+        this.isRotating = false;
+        this.canvas.style.cursor = 'grab';
+    } else if (this.isPanning) {
+        this.isPanning = false;
+        this.canvas.style.cursor = 'grab';
+    }
 };
 
 SandyImage.prototype.handleTouchStart = function (event) {
     event.preventDefault();
+
     if (event.touches.length === 1) {
-        this.isPanning = true;
+        // Single touch - rotate
+        this.isRotating = true;
         this.lastMouseX = event.touches[0].clientX;
         this.lastMouseY = event.touches[0].clientY;
+    } else if (event.touches.length === 2) {
+        // Two touches - pan and zoom
+        this.isPanning = true;
+        this.lastMouseX = (event.touches[0].clientX + event.touches[1].clientX) / 2;
+        this.lastMouseY = (event.touches[0].clientY + event.touches[1].clientY) / 2;
+
+        // Store initial distance for pinch-zoom
+        const dx = event.touches[0].clientX - event.touches[1].clientX;
+        const dy = event.touches[0].clientY - event.touches[1].clientY;
+        this.lastPinchDistance = Math.sqrt(dx * dx + dy * dy);
     }
 };
 
 SandyImage.prototype.handleTouchMove = function (event) {
     event.preventDefault();
-    if (this.isPanning && event.touches.length === 1) {
+
+    if (this.isRotating && event.touches.length === 1) {
+        // Rotation with single touch
         const deltaX = event.touches[0].clientX - this.lastMouseX;
         const deltaY = event.touches[0].clientY - this.lastMouseY;
 
-        this.panX += deltaX;
-        this.panY += deltaY;
+        // Update rotation angles (convert pixels to radians)
+        this.rotationY += deltaX * 0.01;
+        this.rotationX += deltaY * 0.01;
+
+        // Limit vertical rotation to avoid gimbal lock
+        this.rotationX = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, this.rotationX));
 
         this.lastMouseX = event.touches[0].clientX;
         this.lastMouseY = event.touches[0].clientY;
 
-        this.updateZoomAndPan();
+        // Send updated rotation to worker
+        this.updateCamera();
+    } else if (this.isPanning && event.touches.length === 2) {
+        // Two-finger pan and zoom
+
+        // Calculate center point of touches
+        const currentX = (event.touches[0].clientX + event.touches[1].clientX) / 2;
+        const currentY = (event.touches[0].clientY + event.touches[1].clientY) / 2;
+
+        // Calculate pan delta
+        const deltaX = currentX - this.lastMouseX;
+        const deltaY = currentY - this.lastMouseY;
+
+        // Pan speed depends on zoom level (faster pan when zoomed out)
+        const panSpeed = 0.05 * (Math.abs(this.panZ) / 20);
+
+        // Update pan position
+        this.panX += deltaX * panSpeed;
+        this.panY -= deltaY * panSpeed; // Invert Y for natural panning
+
+        // Pinch-zoom
+        const dx = event.touches[0].clientX - event.touches[1].clientX;
+        const dy = event.touches[0].clientY - event.touches[1].clientY;
+        const currentPinchDistance = Math.sqrt(dx * dx + dy * dy);
+
+        if (this.lastPinchDistance) {
+            // Adjust zoom based on pinch distance change
+            const pinchDelta = currentPinchDistance - this.lastPinchDistance;
+            this.panZ += pinchDelta * 0.05;
+        }
+
+        this.lastPinchDistance = currentPinchDistance;
+        this.lastMouseX = currentX;
+        this.lastMouseY = currentY;
+
+        // Send updated camera parameters to worker
+        this.updateCamera();
     }
 };
 
-SandyImage.prototype.handleTouchEnd = function () {
-    this.isPanning = false;
+SandyImage.prototype.handleTouchEnd = function (event) {
+    if (event.touches.length === 0) {
+        // All touches ended
+        this.isRotating = false;
+        this.isPanning = false;
+        this.lastPinchDistance = null;
+    } else if (event.touches.length === 1) {
+        // If we were panning with two fingers and one is lifted,
+        // switch to rotation mode with the remaining finger
+        if (this.isPanning) {
+            this.isPanning = false;
+            this.isRotating = true;
+            this.lastPinchDistance = null;
+
+            // Update last position for the remaining touch
+            this.lastMouseX = event.touches[0].clientX;
+            this.lastMouseY = event.touches[0].clientY;
+        }
+    }
 };
 
-SandyImage.prototype.updateZoomAndPan = function () {
+SandyImage.prototype.updateCamera = function () {
     if (this.worker) {
         this.worker.postMessage({
-            action: 'zoom',
-            zoomLevel: this.zoomLevel,
+            action: 'pan',
             panX: this.panX,
-            panY: this.panY
+            panY: this.panY,
+            panZ: this.panZ
+        });
+
+        this.worker.postMessage({
+            action: 'rotate',
+            rotationX: this.rotationX,
+            rotationY: this.rotationY
         });
     }
 };
@@ -230,10 +334,9 @@ SandyImage.prototype.startWorker = function (imageData) {
                 dampingFactor: this.dampingFactor,
             }, [this.offscreen_canvas]);
 
-            // Center the image initially
-            // This will be calculated more precisely in the worker based on the actual canvas dimensions
+            // Send initial camera parameters
             setTimeout(() => {
-                this.updateZoomAndPan();
+                this.updateCamera();
             }, 100);
         }
     }.bind(this);

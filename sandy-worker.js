@@ -1,10 +1,12 @@
-importScripts('./sandy-image.js')
+importScripts('./sandy-image.js', 'https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js')
 
 const { Image } = wasm_bindgen;
 
 function RenderEngine(terrain, canvas, grains) {
     this.canvas = canvas;
-    this.gl = canvas.getContext('webgl2');
+    this.gl = canvas.getContext('webgl2', {
+        antialias: true,
+    });
 
     if (!this.gl) {
         throw new Error('WebGL2 not supported');
@@ -13,78 +15,160 @@ function RenderEngine(terrain, canvas, grains) {
     this.terrain = terrain;
     this.grains = grains;
 
-    // Initial zoom level (start zoomed in)
-    this.zoomLevel = 5.0; // Default zoom factor
-
-    // Initial panning position (center of canvas)
+    // 3D camera parameters
+    this.zoom = 5.0;
+    this.rotationX = 0.5; // rotation around X axis (up/down)
+    this.rotationY = 0.0; // rotation around Y axis (left/right)
     this.panX = 0;
     this.panY = 0;
+    this.panZ = -140; // Initial camera distance
 
     // Initialize WebGL context
     this.initShaders();
     this.initBuffers();
+    this.initSphereGeometry();
 }
+
+RenderEngine.prototype.initSphereGeometry = function () {
+    const gl = this.gl;
+
+    // Create a sphere geometry
+    const radius = 0.5; // Unit sphere (1 unit diameter)
+    const latitudeBands = 4;
+    const longitudeBands = 4;
+
+    const positions = [];
+    const normals = [];
+    const indices = [];
+
+    // Generate vertex positions
+    for (let lat = 0; lat <= latitudeBands; lat++) {
+        const theta = lat * Math.PI / latitudeBands;
+        const sinTheta = Math.sin(theta);
+        const cosTheta = Math.cos(theta);
+
+        for (let lon = 0; lon <= longitudeBands; lon++) {
+            const phi = lon * 2 * Math.PI / longitudeBands;
+            const sinPhi = Math.sin(phi);
+            const cosPhi = Math.cos(phi);
+
+            const x = cosPhi * sinTheta;
+            const y = cosTheta;
+            const z = sinPhi * sinTheta;
+
+            // Position
+            positions.push(radius * x);
+            positions.push(radius * y);
+            positions.push(radius * z);
+
+            // Normal
+            normals.push(x);
+            normals.push(y);
+            normals.push(z);
+        }
+    }
+
+    // Generate indices
+    for (let lat = 0; lat < latitudeBands; lat++) {
+        for (let lon = 0; lon < longitudeBands; lon++) {
+            const first = (lat * (longitudeBands + 1)) + lon;
+            const second = first + longitudeBands + 1;
+
+            indices.push(first);
+            indices.push(second);
+            indices.push(first + 1);
+
+            indices.push(second);
+            indices.push(second + 1);
+            indices.push(first + 1);
+        }
+    }
+
+    // Create and bind position buffer
+    this.spherePositionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.spherePositionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+    // Create and bind normal buffer
+    this.sphereNormalBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.sphereNormalBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+
+    // Create and bind index buffer
+    this.sphereIndexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.sphereIndexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+    this.sphereIndexCount = indices.length;
+};
 
 RenderEngine.prototype.initShaders = function () {
     const gl = this.gl;
 
-    // Vertex shader for point sprites
+    // Vertex shader for 3D spheres
     const vsSource = `#version 300 es
-    in vec4 aGrainData;  // x, y, vx, vy
+    in vec3 aVertexPosition;
+    in vec3 aVertexNormal;
+    in vec4 aInstanceData;  // x, y, z, speed (using z instead of y for 3D)
 
-    uniform vec2 uCanvasSize;  // width, height of canvas
-    uniform float uZoomLevel;  // zoom factor
-    uniform vec2 uPanOffset;   // pan offset
+    uniform mat4 uModelViewMatrix;
+    uniform mat4 uProjectionMatrix;
+    uniform mat4 uNormalMatrix;
 
-    // Pass velocity to fragment shader if needed
-    out vec2 vVelocity;
+    out vec3 vNormal;
+    out vec3 vLightDirection;
     out float vSpeed;
 
     void main() {
-        // Extract position and velocity
-        vec2 position = aGrainData.xy;
-        vec2 velocity = aGrainData.zw;
+        // Extract position and velocity from instance data
+        vec3 instancePosition = vec3(aInstanceData.x, 0.5, aInstanceData.y); // Place on "floor" (y=0)
+        vSpeed = length(vec2(aInstanceData.z, aInstanceData.w)); // Speed from velocity
         
-        // Apply zoom and pan
-        vec2 zoomedPos = position * uZoomLevel + uPanOffset;
+        // Transform the vertex position based on instance position
+        vec4 worldPosition = vec4(aVertexPosition + instancePosition, 1.0);
+        gl_Position = uProjectionMatrix * uModelViewMatrix * worldPosition;
         
-        // Normalize position (0 to 1) and then to clip space (-1 to 1)
-        vec2 normalizedPos = zoomedPos / uCanvasSize;
-        gl_Position = vec4(normalizedPos * 2.0 - 1.0, 0.0, 1.0);
+        // Transform the normal for lighting
+        vNormal = mat3(uNormalMatrix) * aVertexNormal;
         
-        // Scale point size with zoom
-        gl_PointSize = max(1.0, uZoomLevel);
-        
-        // Pass velocity to fragment shader
-        vVelocity = velocity;
-        vSpeed = length(velocity);
+        // Simple directional light from above
+        vLightDirection = normalize(vec3(0.5, 1.0, 0.5));
     }`;
 
-    // Fragment shader for point sprites
+    // Fragment shader for 3D spheres with lighting
     const fsSource = `#version 300 es
-    precision mediump float;
+    precision highp float;
 
-    in vec2 vVelocity;
+    in vec3 vNormal;
+    in vec3 vLightDirection;
     in float vSpeed;
 
     out vec4 fragColor;
 
     void main() {
-        // Create circle shape
-        vec2 center = gl_PointCoord - vec2(0.5);
-        float dist = length(center);
+        // Normalized normal vector
+        vec3 normal = normalize(vNormal);
         
-        // Soft circle edge
-        float alpha = 1.0 - smoothstep(0.45, 0.5, dist);
+        // Calculate diffuse lighting
+        float diffuse = max(dot(normal, vLightDirection), 0.0);
+        
+        // Ambient lighting
+        float ambient = 0.3;
+        
+        // Calculate lighting factor
+        float lightFactor = ambient + diffuse * 0.7;
         
         // Color based on velocity magnitude (blue->green->yellow->red)
-        vec3 color = mix(
+        vec3 baseColor = mix(
             vec3(0.0, 0.0, 1.0),  // Slow (blue)
             vec3(1.0, 0.0, 0.0),  // Fast (red)
             clamp(vSpeed * 5.0, 0.0, 1.0)
         );
         
-        fragColor = vec4(color, alpha * 0.9);
+        // Apply lighting to color
+        vec3 finalColor = baseColor * lightFactor;
+        
+        fragColor = vec4(finalColor, 1.0);
     }`;
 
     // Create shaders
@@ -103,19 +187,56 @@ RenderEngine.prototype.initShaders = function () {
     }
 
     // Store attribute and uniform locations
-    this.positionAttrib = gl.getAttribLocation(this.program, 'aGrainData');
-    this.canvasSizeUniform = gl.getUniformLocation(this.program, 'uCanvasSize');
-    this.zoomLevelUniform = gl.getUniformLocation(this.program, 'uZoomLevel');
-    this.panOffsetUniform = gl.getUniformLocation(this.program, 'uPanOffset');
+    this.positionAttrib = gl.getAttribLocation(this.program, 'aVertexPosition');
+    this.normalAttrib = gl.getAttribLocation(this.program, 'aVertexNormal');
+    this.instanceDataAttrib = gl.getAttribLocation(this.program, 'aInstanceData');
 
-    // Set the canvas size uniform
-    gl.useProgram(this.program);
-    gl.uniform2f(this.canvasSizeUniform, this.canvas.width, this.canvas.height);
+    this.modelViewMatrixUniform = gl.getUniformLocation(this.program, 'uModelViewMatrix');
+    this.projectionMatrixUniform = gl.getUniformLocation(this.program, 'uProjectionMatrix');
+    this.normalMatrixUniform = gl.getUniformLocation(this.program, 'uNormalMatrix');
 
-    // Set initial zoom and pan
-    gl.uniform1f(this.zoomLevelUniform, this.zoomLevel);
-    gl.uniform2f(this.panOffsetUniform, this.panX, this.panY);
+    // Set up perspective and view matrices
+    this.updateProjectionMatrix();
 }
+
+RenderEngine.prototype.updateProjectionMatrix = function () {
+    const gl = this.gl;
+
+    // Create perspective matrix
+    const fieldOfView = 45 * Math.PI / 180;   // in radians
+    const aspect = gl.canvas.width / gl.canvas.height;
+    const zNear = 0.1;
+    const zFar = 1000.0;
+
+    const projectionMatrix = mat4.create();
+    mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
+
+    // Set projection matrix uniform
+    gl.useProgram(this.program);
+    gl.uniformMatrix4fv(this.projectionMatrixUniform, false, projectionMatrix);
+};
+
+RenderEngine.prototype.updateModelViewMatrix = function () {
+    const gl = this.gl;
+
+    // Create model-view matrix
+    const modelViewMatrix = mat4.create();
+
+    // Apply camera transformations (in reverse order)
+    mat4.translate(modelViewMatrix, modelViewMatrix, [this.panX, this.panY, this.panZ]);
+    mat4.rotateX(modelViewMatrix, modelViewMatrix, this.rotationX);
+    mat4.rotateY(modelViewMatrix, modelViewMatrix, this.rotationY);
+
+    // Create normal matrix for lighting calculations
+    const normalMatrix = mat4.create();
+    mat4.invert(normalMatrix, modelViewMatrix);
+    mat4.transpose(normalMatrix, normalMatrix);
+
+    // Set uniforms
+    gl.useProgram(this.program);
+    gl.uniformMatrix4fv(this.modelViewMatrixUniform, false, modelViewMatrix);
+    gl.uniformMatrix4fv(this.normalMatrixUniform, false, normalMatrix);
+};
 
 RenderEngine.prototype.compileShader = function (type, source) {
     const gl = this.gl;
@@ -136,21 +257,8 @@ RenderEngine.prototype.compileShader = function (type, source) {
 RenderEngine.prototype.initBuffers = function () {
     const gl = this.gl;
 
-    // Create buffer for grain data
+    // Create buffer for instance data (grain positions and velocities)
     this.grainBuffer = gl.createBuffer();
-
-    // Create VAO
-    this.vao = gl.createVertexArray();
-    gl.bindVertexArray(this.vao);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.grainBuffer);
-
-    // Single attribute for all grain data (x, y, vx, vy)
-    this.grainDataAttrib = gl.getAttribLocation(this.program, 'aGrainData');
-    gl.enableVertexAttribArray(this.grainDataAttrib);
-    gl.vertexAttribPointer(this.grainDataAttrib, 4, gl.FLOAT, false, 0, 0);
-
-    gl.bindVertexArray(null);
 }
 
 RenderEngine.prototype.updateGrains = function () {
@@ -160,44 +268,66 @@ RenderEngine.prototype.updateGrains = function () {
     gl.bufferData(gl.ARRAY_BUFFER, this.grains, gl.DYNAMIC_DRAW);
 }
 
-RenderEngine.prototype.setZoom = function (newZoomLevel) {
-    this.zoomLevel = Math.max(1.0, newZoomLevel);
+RenderEngine.prototype.setRotation = function (rotX, rotY) {
+    this.rotationX = rotX;
+    this.rotationY = rotY;
+};
 
-    const gl = this.gl;
-    gl.useProgram(this.program);
-    gl.uniform1f(this.zoomLevelUniform, this.zoomLevel);
-}
-
-RenderEngine.prototype.setPan = function (x, y) {
+RenderEngine.prototype.setPan = function (x, y, z) {
+    if (z !== undefined) this.panZ = z;
     this.panX = x;
     this.panY = y;
-
-    const gl = this.gl;
-    gl.useProgram(this.program);
-    gl.uniform2f(this.panOffsetUniform, this.panX, this.panY);
-}
+};
 
 RenderEngine.prototype.render = function () {
     const gl = this.gl;
 
+    // Update view matrix with current camera parameters
+    this.updateModelViewMatrix();
+
     // Clear canvas
-    gl.clearColor(0.0, 0.0, 0.0, 0.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clearColor(0.9, 0.9, 0.9, 1.0); // Light background to see if clearing works
+    gl.clearDepth(1.0);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // Use shader program
     gl.useProgram(this.program);
-    gl.bindVertexArray(this.vao);
 
-    // Enable point sprites
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    // Bind sphere geometry buffers
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.spherePositionBuffer);
+    gl.vertexAttribPointer(this.positionAttrib, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.positionAttrib);
 
-    // Draw points
-    gl.drawArrays(gl.POINTS, 0, this.grains.length / 4);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.sphereNormalBuffer);
+    gl.vertexAttribPointer(this.normalAttrib, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.normalAttrib);
+
+    // Bind instance data and set up instanced attribute
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.grainBuffer);
+    gl.vertexAttribPointer(this.instanceDataAttrib, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.instanceDataAttrib);
+    gl.vertexAttribDivisor(this.instanceDataAttrib, 1); // This makes it an instanced attribute
+
+    // Bind index buffer
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.sphereIndexBuffer);
+
+    // Draw instanced spheres
+    const numInstances = this.grains.length / 4;
+    gl.drawElementsInstanced(
+        gl.TRIANGLES,
+        this.sphereIndexCount,
+        gl.UNSIGNED_SHORT,
+        0,
+        numInstances // Number of instances
+    );
 
     // Cleanup
-    gl.bindVertexArray(null);
-    gl.disable(gl.BLEND);
+    gl.vertexAttribDivisor(this.instanceDataAttrib, 0); // Reset the divisor
+    gl.disableVertexAttribArray(this.positionAttrib);
+    gl.disableVertexAttribArray(this.normalAttrib);
+    gl.disableVertexAttribArray(this.instanceDataAttrib);
 }
 
 async function init_wasm() {
@@ -206,14 +336,19 @@ async function init_wasm() {
     let image;
     let renderEngine;
     let animationFrameId;
+    let animating = true;
 
     self.postMessage("ready");
 
     function animate() {
-        image.next();
+        if (animating) {
+            image.next();
 
-        // Update and render
-        renderEngine.updateGrains();
+            // Update 
+            renderEngine.updateGrains();
+        }
+
+        // Render the scene
         renderEngine.render();
 
         animationFrameId = requestAnimationFrame(animate);
@@ -234,27 +369,22 @@ async function init_wasm() {
             image = Image.new(terrain, event.data.grains, event.data.dampingFactor, width, height);
             renderEngine = new RenderEngine(terrain, event.data.offscreen_canvas, event.data.grains);
 
-            // Center the view
-            renderEngine.setPan((canvas.width - width * renderEngine.zoomLevel) / 2,
-                (canvas.height - height * renderEngine.zoomLevel) / 2);
-
-            console.log("Done loading image");
-
+            console.log("Starting animation");
             animate();
         } else if (event.data.action === "stop") {
-            cancelAnimationFrame(animationFrameId);
+            animating = false;
         } else if (event.data.action === "start") {
-            animate();
-        } else if (event.data.action === "zoom") {
+            animating = true;
+        } else if (event.data.action === "rotate") {
             if (renderEngine) {
-                renderEngine.setZoom(event.data.zoomLevel);
-                // Adjust pan to keep view centered when zooming
-                renderEngine.setPan(event.data.panX, event.data.panY);
+                renderEngine.setRotation(event.data.rotationX, event.data.rotationY);
             }
         } else if (event.data.action === "pan") {
             if (renderEngine) {
-                renderEngine.setPan(event.data.panX, event.data.panY);
+                renderEngine.setPan(event.data.panX, event.data.panY, event.data.panZ);
             }
+        } else {
+            console.log("Unknown message:", event.data);
         }
     };
 }
