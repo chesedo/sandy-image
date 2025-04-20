@@ -16,12 +16,15 @@ function RenderEngine(terrain, canvas, grains) {
     this.grains = grains;
 
     // 3D camera parameters
-    this.zoom = 5.0;
     this.rotationX = 0.5; // rotation around X axis (up/down)
     this.rotationY = 0.0; // rotation around Y axis (left/right)
     this.panX = 0;
     this.panY = 0;
     this.panZ = -140; // Initial camera distance
+
+    this.rotationCenterX = 0;
+    this.rotationCenterY = 0;
+    this.rotationCenterZ = 0;
 
     // Initialize WebGL context
     this.initShaders();
@@ -224,8 +227,16 @@ RenderEngine.prototype.updateModelViewMatrix = function () {
 
     // Apply camera transformations (in reverse order)
     mat4.translate(modelViewMatrix, modelViewMatrix, [this.panX, this.panY, this.panZ]);
+
+    // Translate to rotation center
+    mat4.translate(modelViewMatrix, modelViewMatrix, [this.rotationCenterX, this.rotationCenterY, this.rotationCenterZ]);
+
+    // Apply rotation
     mat4.rotateX(modelViewMatrix, modelViewMatrix, this.rotationX);
     mat4.rotateY(modelViewMatrix, modelViewMatrix, this.rotationY);
+
+    // Translate back from rotation center
+    mat4.translate(modelViewMatrix, modelViewMatrix, [-this.rotationCenterX, -this.rotationCenterY, -this.rotationCenterZ]);
 
     // Create normal matrix for lighting calculations
     const normalMatrix = mat4.create();
@@ -271,6 +282,12 @@ RenderEngine.prototype.updateGrains = function () {
 RenderEngine.prototype.setRotation = function (rotX, rotY) {
     this.rotationX = rotX;
     this.rotationY = rotY;
+};
+
+RenderEngine.prototype.setRotationCenter = function (x, y, z) {
+    this.rotationCenterX = x;
+    this.rotationCenterY = y;
+    this.rotationCenterZ = z;
 };
 
 RenderEngine.prototype.setPan = function (x, y, z) {
@@ -383,7 +400,16 @@ async function init_wasm() {
             if (renderEngine) {
                 renderEngine.setPan(event.data.panX, event.data.panY, event.data.panZ);
             }
-        } else {
+        } else if (event.data.action === "setRotationCenter") {
+            if (renderEngine) {
+                renderEngine.setRotationCenter(
+                    event.data.centerX,
+                    event.data.centerY,
+                    event.data.centerZ
+                );
+            }
+        }
+        else {
             console.log("Unknown message:", event.data);
         }
     };

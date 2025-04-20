@@ -142,7 +142,7 @@
             <script>
                 let sandy_image = new SandyImage('#sandy-image', {
                     dampingFactor: 0.999,
-                    initialZoom: -140
+                    initialZoom: -100
                 });
 
                 let isAnimating = true;
@@ -162,30 +162,68 @@
                 const resetButton = document.getElementById('reset-view');
                 resetButton.addEventListener('click', function () {
                     // Reset camera to initial position
-                    sandy_image.rotationX = 0.0;
+                    sandy_image.rotationX = -Math.PI / 4; // -90 degrees
                     sandy_image.rotationY = 0.0;
-                    sandy_image.panX = 0;
-                    sandy_image.panY = 0;
-                    sandy_image.panZ = -140;
+                    sandy_image.panX = -25;
+                    sandy_image.panY = -35;
+                    sandy_image.panZ = -100;
+
+                    sandy_image.worker.postMessage({
+                        action: 'setRotationCenter',
+                        centerX: 0,
+                        centerY: 0,
+                        centerZ: 0,
+                    });
+
                     sandy_image.updateCamera();
                 });
 
                 // Preset view buttons
                 document.getElementById('top-view').addEventListener('click', function () {
-                    sandy_image.rotationX = 0.0;
+                    sandy_image.rotationX = -Math.PI / 2; // -90 degrees
                     sandy_image.rotationY = 0.0;
+                    sandy_image.panX = -25;
+                    sandy_image.panY = -25;
+                    sandy_image.panZ = -100;
+
+                    sandy_image.worker.postMessage({
+                        action: 'setRotationCenter',
+                        centerX: 0,
+                        centerY: 0,
+                        centerZ: 0,
+                    });
                     sandy_image.updateCamera();
                 });
 
                 document.getElementById('front-view').addEventListener('click', function () {
-                    sandy_image.rotationX = Math.PI / 2 - 0.1;
+                    sandy_image.rotationX = 0.0;
                     sandy_image.rotationY = 0.0;
+                    sandy_image.panX = -25;
+                    sandy_image.panY = -10;
+                    sandy_image.panZ = -100;
+
+                    sandy_image.worker.postMessage({
+                        action: 'setRotationCenter',
+                        centerX: 0,
+                        centerY: 0,
+                        centerZ: 0,
+                    });
                     sandy_image.updateCamera();
                 });
 
                 document.getElementById('side-view').addEventListener('click', function () {
-                    sandy_image.rotationX = Math.PI / 2 - 0.1;
-                    sandy_image.rotationY = Math.PI / 2;
+                    sandy_image.rotationX = 0.0;
+                    sandy_image.rotationY = -Math.PI / 2; // -90 degrees
+                    sandy_image.panX = 25;
+                    sandy_image.panY = -10;
+                    sandy_image.panZ = -100;
+
+                    sandy_image.worker.postMessage({
+                        action: 'setRotationCenter',
+                        centerX: 0,
+                        centerY: 0,
+                        centerZ: 0,
+                    });
                     sandy_image.updateCamera();
                 });
             </script>

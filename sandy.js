@@ -17,10 +17,10 @@ function SandyImage(imgSelector, options) {
     this.createGrainFn = options.createGrainFn;
 
     // 3D navigation parameters
-    this.panX = 0;
-    this.panY = 0;
+    this.panX = -25;
+    this.panY = -25;
     this.panZ = options.initialZoom;
-    this.rotationX = 0.5;  // Initial X rotation (in radians)
+    this.rotationX = -Math.PI / 2; // -90 degrees
     this.rotationY = 0.0;  // Initial Y rotation (in radians)
 
     // Mouse/touch control state
@@ -103,6 +103,30 @@ SandyImage.prototype.handleMouseDown = function (event) {
     if (event.button === 0) {  // Left mouse button for rotation
         this.isRotating = true;
         this.canvas.style.cursor = 'grabbing';
+
+        // Calculate screen coordinates relative to canvas
+        const rect = this.canvas.getBoundingClientRect();
+        const canvasX = event.clientX - rect.left;
+        const canvasY = event.clientY - rect.top;
+
+        // Normalize coordinates to -1 to 1 range (WebGL standard)
+        const normalizedX = (canvasX / rect.width) * 2 - 1;
+        const normalizedY = -((canvasY / rect.height) * 2 - 1); // Y is inverted in screen space
+
+        // Scale by scene size (proportional to the camera distance)
+        // This is a simplified approach - ideally you'd use ray casting
+        const sceneScale = Math.abs(this.panZ) / 10;
+        const worldX = normalizedX * sceneScale;
+        const worldY = 0; // Keep rotation on the XZ plane (ground plane)
+        const worldZ = normalizedY * sceneScale;
+
+        // Send rotation center to worker
+        this.worker.postMessage({
+            action: 'setRotationCenter',
+            centerX: worldX,
+            centerY: worldY,
+            centerZ: worldZ
+        });
     } else if (event.button === 2) {  // Right mouse button for panning
         this.isPanning = true;
         this.canvas.style.cursor = 'move';
@@ -168,6 +192,29 @@ SandyImage.prototype.handleTouchStart = function (event) {
         this.isRotating = true;
         this.lastMouseX = event.touches[0].clientX;
         this.lastMouseY = event.touches[0].clientY;
+
+        // Calculate screen coordinates relative to canvas for rotation center
+        const rect = this.canvas.getBoundingClientRect();
+        const canvasX = event.touches[0].clientX - rect.left;
+        const canvasY = event.touches[0].clientY - rect.top;
+
+        // Normalize coordinates to -1 to 1 range (WebGL standard)
+        const normalizedX = (canvasX / rect.width) * 2 - 1;
+        const normalizedY = -((canvasY / rect.height) * 2 - 1); // Y is inverted in screen space
+
+        // Scale by scene size (proportional to the camera distance)
+        const sceneScale = Math.abs(this.panZ) / 10;
+        const worldX = normalizedX * sceneScale;
+        const worldY = 0; // Keep rotation on the XZ plane (ground plane)
+        const worldZ = normalizedY * sceneScale;
+
+        // Send rotation center to worker
+        this.worker.postMessage({
+            action: 'setRotationCenter',
+            centerX: worldX,
+            centerY: worldY,
+            centerZ: worldZ
+        });
     } else if (event.touches.length === 2) {
         // Two touches - pan and zoom
         this.isPanning = true;
@@ -256,6 +303,29 @@ SandyImage.prototype.handleTouchEnd = function (event) {
             // Update last position for the remaining touch
             this.lastMouseX = event.touches[0].clientX;
             this.lastMouseY = event.touches[0].clientY;
+
+            // Calculate and set new rotation center based on the remaining touch
+            const rect = this.canvas.getBoundingClientRect();
+            const canvasX = event.touches[0].clientX - rect.left;
+            const canvasY = event.touches[0].clientY - rect.top;
+
+            // Normalize coordinates to -1 to 1 range
+            const normalizedX = (canvasX / rect.width) * 2 - 1;
+            const normalizedY = -((canvasY / rect.height) * 2 - 1);
+
+            // Scale by scene size
+            const sceneScale = Math.abs(this.panZ) / 10;
+            const worldX = normalizedX * sceneScale;
+            const worldY = 0;
+            const worldZ = normalizedY * sceneScale;
+
+            // Send rotation center to worker
+            this.worker.setRotationCenter({
+                action: 'setRotationCenter',
+                centerX: worldX,
+                centerY: worldY,
+                centerZ: worldZ
+            });
         }
     }
 };
