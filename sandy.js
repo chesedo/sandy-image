@@ -322,7 +322,7 @@ SandyImage.prototype.handleTouchEnd = function (event) {
             const worldZ = normalizedY * sceneScale;
 
             // Send rotation center to worker
-            this.worker.setRotationCenter({
+            this.worker.postMessage({
                 action: 'setRotationCenter',
                 centerX: worldX,
                 centerY: worldY,
