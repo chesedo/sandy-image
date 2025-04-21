@@ -4,11 +4,11 @@ function SandyImage(imgSelector, options) {
         dampingFactor: 0.95,
         createGrainFn: ({ canvasWidth, canvasHeight, index }) => {
             const x = Math.random() * (canvasWidth);
-            const y = Math.random() * (canvasHeight);
+            const z = Math.random() * (canvasHeight);
             const vx = (Math.random() - 0.5);
-            const vy = (Math.random() - 0.5);
+            const vz = (Math.random() - 0.5);
 
-            return { x, y, vx, vy };
+            return { x, z, vx, vz };
         },
         initialZoom: -20,
         steps: 100,
@@ -33,7 +33,6 @@ function SandyImage(imgSelector, options) {
     this.mouseButton = 0;  // 0 = left button, 2 = right button
 
     this.grainCount = 10; // TODO remove
-    this.grains = null;
     this.steps = options.steps;
 
     this.init();
@@ -351,8 +350,8 @@ SandyImage.prototype.updateCamera = function () {
 };
 
 SandyImage.prototype.loadElevationImage = function () {
-    if (this.grains) {
-        return
+    if (this.positions) {
+        return;
     }
 
     // Create a temporary canvas to extract the image data
@@ -375,19 +374,28 @@ SandyImage.prototype.loadElevationImage = function () {
 };
 
 SandyImage.prototype.createGrains = function () {
-    this.grains = new Float32Array(this.grainCount * 4);
+    const grainCount = this.grainCount;
 
-    for (let i = 0; i < this.grainCount; i++) {
-        const { x, y, vx, vy } = this.createGrainFn({
+    // Create separate arrays for positions and velocities
+    this.positions = new Float32Array(grainCount * 3);
+    this.velocities = new Float32Array(grainCount * 3);
+
+    for (let i = 0; i < grainCount; i++) {
+        const { x, z, vx, vz } = this.createGrainFn({
             canvasWidth: this.canvas.width,
             canvasHeight: this.canvas.height,
             index: i
         });
 
-        this.grains[i * 4] = x;
-        this.grains[i * 4 + 1] = y;
-        this.grains[i * 4 + 2] = vx;
-        this.grains[i * 4 + 3] = vy;
+        // Fill positions array
+        this.positions[i * 3] = x;
+        this.positions[i * 3 + 1] = 0;  // Default y to 0 if not provided
+        this.positions[i * 3 + 2] = z;  // Use y as z if z not provided (backward compatibility)
+
+        // Fill velocities array
+        this.velocities[i * 3] = vx;
+        this.velocities[i * 3 + 1] = 0;  // Default vy to 0
+        this.velocities[i * 3 + 2] = vz;  // Use vy as vz if vz not provided
     }
 };
 
@@ -402,7 +410,8 @@ SandyImage.prototype.startWorker = function (imageData) {
                 terrain: imageData.data,
                 width: imageData.width,
                 height: imageData.height,
-                grains: this.grains,
+                positions: this.positions,
+                velocities: this.velocities,
                 offscreen_canvas: this.offscreen_canvas,
                 dampingFactor: this.dampingFactor,
                 steps: this.steps,

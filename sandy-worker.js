@@ -551,9 +551,10 @@ Terrain.prototype.render = function (camera, projectionMatrix) {
 /**
  * ParticleSystem class to handle grain particles
  */
-function ParticleSystem(gl, grainData) {
+function ParticleSystem(gl, positions, velocities) {
     this.gl = gl;
-    this.grains = grainData;
+    this.positions = positions;
+    this.velocities = velocities;
 
     this.initSphereGeometry();
     this.initShaders();
@@ -640,7 +641,8 @@ ParticleSystem.prototype.initShaders = function () {
     const vsSource = `#version 300 es
     in vec3 aVertexPosition;
     in vec3 aVertexNormal;
-    in vec4 aInstanceData;  // x, y, z, speed (using z instead of y for 3D)
+    in vec3 aInstancePosition;  // xyz from positions array
+    in vec3 aInstanceVelocity;  // vxvyvz from velocities array
 
     uniform mat4 uModelViewMatrix;
     uniform mat4 uProjectionMatrix;
@@ -651,13 +653,12 @@ ParticleSystem.prototype.initShaders = function () {
     out float vSpeed;
 
     void main() {
-        // Extract position and velocity from instance data
-        vec3 instancePosition = vec3(aInstanceData.x, 0.5, aInstanceData.y); // Place on "floor" (y=0)
-        vSpeed = length(vec2(aInstanceData.z, aInstanceData.w)); // Speed from velocity
-        
         // Transform the vertex position based on instance position
-        vec4 worldPosition = vec4(aVertexPosition + instancePosition, 1.0);
+        vec4 worldPosition = vec4(aVertexPosition + aInstancePosition, 1.0);
         gl_Position = uProjectionMatrix * uModelViewMatrix * worldPosition;
+        
+        // Calculate speed for coloring
+        vSpeed = length(aInstanceVelocity);
         
         // Transform the normal for lighting
         vNormal = mat3(uNormalMatrix) * aVertexNormal;
@@ -720,7 +721,8 @@ ParticleSystem.prototype.initShaders = function () {
     // Store attribute and uniform locations
     this.positionAttrib = gl.getAttribLocation(this.program, 'aVertexPosition');
     this.normalAttrib = gl.getAttribLocation(this.program, 'aVertexNormal');
-    this.instanceDataAttrib = gl.getAttribLocation(this.program, 'aInstanceData');
+    this.instancePositionAttrib = gl.getAttribLocation(this.program, 'aInstancePosition');
+    this.instanceVelocityAttrib = gl.getAttribLocation(this.program, 'aInstanceVelocity');
 
     this.modelViewMatrixUniform = gl.getUniformLocation(this.program, 'uModelViewMatrix');
     this.projectionMatrixUniform = gl.getUniformLocation(this.program, 'uProjectionMatrix');
@@ -730,15 +732,21 @@ ParticleSystem.prototype.initShaders = function () {
 ParticleSystem.prototype.initBuffers = function () {
     const gl = this.gl;
 
-    // Create buffer for instance data (grain positions and velocities)
-    this.grainBuffer = gl.createBuffer();
+    // Create buffer for position data
+    this.positionBuffer = gl.createBuffer();
+
+    // Create buffer for velocity data (used for coloring particles)
+    this.velocityBuffer = gl.createBuffer();
 };
 
 ParticleSystem.prototype.updateGrains = function () {
     const gl = this.gl;
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.grainBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, this.grains, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, this.positions, gl.DYNAMIC_DRAW);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.velocityBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, this.velocities, gl.DYNAMIC_DRAW);
 };
 
 ParticleSystem.prototype.render = function (camera, projectionMatrix) {
@@ -762,36 +770,45 @@ ParticleSystem.prototype.render = function (camera, projectionMatrix) {
     gl.vertexAttribPointer(this.normalAttrib, 3, gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(this.normalAttrib);
 
-    // Bind instance data and set up instanced attribute
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.grainBuffer);
-    gl.vertexAttribPointer(this.instanceDataAttrib, 4, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(this.instanceDataAttrib);
-    gl.vertexAttribDivisor(this.instanceDataAttrib, 1); // This makes it an instanced attribute
+    // Bind position instance data
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+    gl.vertexAttribPointer(this.instancePositionAttrib, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.instancePositionAttrib);
+    gl.vertexAttribDivisor(this.instancePositionAttrib, 1);
+
+    // Bind velocity instance data
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.velocityBuffer);
+    gl.vertexAttribPointer(this.instanceVelocityAttrib, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.instanceVelocityAttrib);
+    gl.vertexAttribDivisor(this.instanceVelocityAttrib, 1);
 
     // Bind index buffer
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.sphereIndexBuffer);
 
     // Draw instanced spheres
-    const numInstances = this.grains.length / 4;
+    const numInstances = this.positions.length / 3;
+
     gl.drawElementsInstanced(
         gl.TRIANGLES,
         this.sphereIndexCount,
         gl.UNSIGNED_SHORT,
         0,
-        numInstances // Number of instances
+        numInstances
     );
 
     // Cleanup
-    gl.vertexAttribDivisor(this.instanceDataAttrib, 0); // Reset the divisor
+    gl.vertexAttribDivisor(this.instancePositionAttrib, 0);
+    gl.vertexAttribDivisor(this.instanceVelocityAttrib, 0);
+    gl.disableVertexAttribArray(this.instancePositionAttrib);
+    gl.disableVertexAttribArray(this.instanceVelocityAttrib);
     gl.disableVertexAttribArray(this.positionAttrib);
     gl.disableVertexAttribArray(this.normalAttrib);
-    gl.disableVertexAttribArray(this.instanceDataAttrib);
 };
 
 /**
  * RenderEngine class to manage the overall rendering
  */
-function RenderEngine(terrain, canvas, grains, width, height) {
+function RenderEngine(terrain, canvas, positions, velocities, width, height) {
     this.canvas = canvas;
     this.gl = canvas.getContext('webgl2', {
         antialias: true,
@@ -805,7 +822,7 @@ function RenderEngine(terrain, canvas, grains, width, height) {
     this.camera = new Camera();
     this.coordinateGizmo = new CoordinateGizmo(this.gl, this.camera);
     this.terrain = new Terrain(this.gl, terrain, width, height);
-    this.particles = new ParticleSystem(this.gl, grains);
+    this.particles = new ParticleSystem(this.gl, positions, velocities);
 
     // Set up the projection matrix
     this.projectionMatrix = mat4.create();
@@ -907,10 +924,11 @@ async function init_wasm() {
     }
 
     self.onmessage = async event => {
-        if (event.data.grains) {
+        if (event.data.positions && event.data.velocities) {
             let terrain = event.data.terrain;
             let steps = event.data.steps;
-            let grains = event.data.grains;
+            let positions = event.data.positions;
+            let velocities = event.data.velocities;
             let canvas = event.data.offscreen_canvas;
             let width = event.data.width;
             let height = event.data.height;
@@ -926,8 +944,8 @@ async function init_wasm() {
                 grayscale[i / 4] = (terrain[i] + terrain[i + 1] + terrain[i + 2]) / 3;
             }
 
-            image = Image.new(grayscale, steps, grains, event.data.dampingFactor, width, height);
-            renderEngine = new RenderEngine(grayscale, event.data.offscreen_canvas, grains, width, height);
+            image = Image.new(grayscale, steps, positions, velocities, event.data.dampingFactor, width, height);
+            renderEngine = new RenderEngine(grayscale, event.data.offscreen_canvas, positions, velocities, width, height);
 
             console.log("Starting animation");
             animate();

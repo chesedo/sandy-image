@@ -5,7 +5,8 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen]
 pub struct Image {
-    grains: Float32Array,
+    positions: Float32Array,  // x, y, z
+    velocities: Float32Array, // vx, vy, vz
     damping_factor: f32,
     width: f32,
     height: f32,
@@ -17,7 +18,8 @@ impl Image {
     pub fn new(
         terrain: Uint8Array,
         steps: u8,
-        grains: Float32Array,
+        positions: Float32Array,
+        velocities: Float32Array,
         damping_factor: f32,
         width: f32,
         height: f32,
@@ -48,7 +50,8 @@ impl Image {
         }
 
         Self {
-            grains,
+            positions,
+            velocities,
             damping_factor,
             width,
             height,
@@ -56,15 +59,25 @@ impl Image {
     }
 
     pub fn next(&mut self) {
-        for i in 0..self.grains.length() / 4 {
-            let mut x = self.grains.get_index(i * 4);
-            let mut y = self.grains.get_index(i * 4 + 1);
-            let mut vx = self.grains.get_index(i * 4 + 2);
-            let mut vy = self.grains.get_index(i * 4 + 3);
+        let grain_count = self.positions.length() / 3;
 
+        for i in 0..grain_count {
+            // Get position
+            let mut x = self.positions.get_index(i * 3);
+            let mut y = self.positions.get_index(i * 3 + 1);
+            let mut z = self.positions.get_index(i * 3 + 2);
+
+            // Get velocity
+            let mut vx = self.velocities.get_index(i * 3);
+            let mut vy = self.velocities.get_index(i * 3 + 1);
+            let mut vz = self.velocities.get_index(i * 3 + 2);
+
+            // Apply velocity to position
             x += vx;
             y += vy;
+            z += vz;
 
+            // Boundary checks for x
             if x < 0.0 {
                 x *= -1.0;
                 vx *= -1.0;
@@ -73,21 +86,35 @@ impl Image {
                 vx *= -1.0;
             }
 
+            // Boundary checks for y (vertical)
             if y < 0.0 {
                 y *= -1.0;
                 vy *= -1.0;
-            } else if y > self.height {
-                y = self.height - (y - self.height);
-                vy *= -1.0;
             }
 
+            // Boundary checks for z
+            if z < 0.0 {
+                z *= -1.0;
+                vz *= -1.0;
+            } else if z > self.height {
+                z = self.height - (z - self.height);
+                vz *= -1.0;
+            }
+
+            // Apply damping to velocities
             vx *= self.damping_factor;
             vy *= self.damping_factor;
+            vz *= self.damping_factor;
 
-            self.grains.set_index(i * 4, x);
-            self.grains.set_index(i * 4 + 1, y);
-            self.grains.set_index(i * 4 + 2, vx);
-            self.grains.set_index(i * 4 + 3, vy);
+            // Update position
+            self.positions.set_index(i * 3, x);
+            self.positions.set_index(i * 3 + 1, y);
+            self.positions.set_index(i * 3 + 2, z);
+
+            // Update velocity
+            self.velocities.set_index(i * 3, vx);
+            self.velocities.set_index(i * 3 + 1, vy);
+            self.velocities.set_index(i * 3 + 2, vz);
         }
     }
 }
