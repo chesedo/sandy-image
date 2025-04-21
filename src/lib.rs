@@ -1,3 +1,5 @@
+use std::u32;
+
 use js_sys::{Float32Array, Uint8Array};
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -14,11 +16,37 @@ impl Image {
     /// Create a new image for the elevation data, initial grains, and other parameters
     pub fn new(
         terrain: Uint8Array,
+        steps: u8,
         grains: Float32Array,
         damping_factor: f32,
         width: f32,
         height: f32,
     ) -> Self {
+        // Normalize the terrain
+        let mut max = u8::MAX;
+        let mut min = u8::MIN;
+
+        for i in 0..terrain.length() {
+            let value = terrain.get_index(i);
+            if value > max {
+                max = value;
+            }
+            if value < min {
+                min = value;
+            }
+        }
+
+        let step_size = (max - min) / steps;
+
+        for i in 0..terrain.length() {
+            let value = terrain.get_index(i);
+            let mut normalized = (value - min) / step_size;
+            if normalized > steps {
+                normalized = steps;
+            }
+            terrain.set_index(i, normalized);
+        }
+
         Self {
             grains,
             damping_factor,

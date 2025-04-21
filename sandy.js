@@ -11,6 +11,7 @@ function SandyImage(imgSelector, options) {
             return { x, y, vx, vy };
         },
         initialZoom: -20,
+        steps: 100,
         ...options
     };
     this.dampingFactor = options.dampingFactor;
@@ -32,6 +33,7 @@ function SandyImage(imgSelector, options) {
 
     this.grainCount = 10; // TODO remove
     this.grains = null;
+    this.steps = options.steps;
 
     this.init();
 }
@@ -402,6 +404,7 @@ SandyImage.prototype.startWorker = function (imageData) {
                 grains: this.grains,
                 offscreen_canvas: this.offscreen_canvas,
                 dampingFactor: this.dampingFactor,
+                steps: this.steps,
             }, [this.offscreen_canvas]);
 
             // Send initial camera parameters

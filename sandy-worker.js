@@ -27,9 +27,9 @@ function RenderEngine(terrain, canvas, grains) {
     this.rotationCenterZ = 0;
 
     // Initialize WebGL context
+    this.initSphereGeometry();
     this.initShaders();
     this.initBuffers();
-    this.initSphereGeometry();
 }
 
 RenderEngine.prototype.initSphereGeometry = function () {
@@ -232,6 +232,7 @@ RenderEngine.prototype.updateModelViewMatrix = function () {
     mat4.translate(modelViewMatrix, modelViewMatrix, [this.rotationCenterX, this.rotationCenterY, this.rotationCenterZ]);
 
     // Apply rotation
+    // TODO: use delta rotation based on latest rotation center
     mat4.rotateX(modelViewMatrix, modelViewMatrix, this.rotationX);
     mat4.rotateY(modelViewMatrix, modelViewMatrix, this.rotationY);
 
@@ -300,6 +301,7 @@ RenderEngine.prototype.render = function () {
     const gl = this.gl;
 
     // Update view matrix with current camera parameters
+    // TODO: only update on changes
     this.updateModelViewMatrix();
 
     // Clear canvas
@@ -374,6 +376,8 @@ async function init_wasm() {
     self.onmessage = async event => {
         if (event.data.grains) {
             let terrain = event.data.terrain;
+            let steps = event.data.steps;
+            let grains = event.data.grains;
             let canvas = event.data.offscreen_canvas;
             let width = event.data.width;
             let height = event.data.height;
@@ -383,8 +387,14 @@ async function init_wasm() {
             canvas.width = width * scaleFactor;
             canvas.height = height * scaleFactor;
 
-            image = Image.new(terrain, event.data.grains, event.data.dampingFactor, width, height);
-            renderEngine = new RenderEngine(terrain, event.data.offscreen_canvas, event.data.grains);
+            // Make terrain grayscale
+            let grayscale = new Uint8Array(terrain.length / 4);
+            for (let i = 0; i < terrain.length; i += 4) {
+                grayscale[i / 4] = (terrain[i] + terrain[i + 1] + terrain[i + 2]) / 3;
+            }
+
+            image = Image.new(grayscale, steps, grains, event.data.dampingFactor, width, height);
+            renderEngine = new RenderEngine(grayscale, event.data.offscreen_canvas, grains);
 
             console.log("Starting animation");
             animate();
