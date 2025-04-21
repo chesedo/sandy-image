@@ -2,40 +2,359 @@ importScripts('./sandy-image.js', 'https://cdnjs.cloudflare.com/ajax/libs/gl-mat
 
 const { Image } = wasm_bindgen;
 
-function RenderEngine(terrain, canvas, grains, width, height) {
-    this.canvas = canvas;
-    this.gl = canvas.getContext('webgl2', {
-        antialias: true,
-    });
 
-    if (!this.gl) {
-        throw new Error('WebGL2 not supported');
-    }
-
-    this.terrain = terrain;
-    this.grains = grains;
-    this.width = width;
-    this.height = height;
-
-    // 3D camera parameters
+/**
+ * Camera class to handle view transformations
+ */
+function Camera() {
     this.rotationX = 0.5; // rotation around X axis (up/down)
     this.rotationY = 0.0; // rotation around Y axis (left/right)
     this.panX = 0;
     this.panY = 0;
     this.panZ = -140; // Initial camera distance
-
     this.rotationCenterX = 0;
     this.rotationCenterY = 0;
     this.rotationCenterZ = 0;
+}
 
-    // Initialize WebGL context
+Camera.prototype.setRotation = function (rotX, rotY) {
+    this.rotationX = rotX;
+    this.rotationY = rotY;
+};
+
+Camera.prototype.setRotationCenter = function (x, y, z) {
+    this.rotationCenterX = x;
+    this.rotationCenterY = y;
+    this.rotationCenterZ = z;
+};
+
+Camera.prototype.setPan = function (x, y, z) {
+    if (z !== undefined) this.panZ = z;
+    this.panX = x;
+    this.panY = y;
+};
+
+Camera.prototype.updateModelViewMatrix = function (gl, program, modelViewUniform, normalMatrixUniform) {
+    // Create model-view matrix
+    const modelViewMatrix = mat4.create();
+
+    // Apply camera transformations (in reverse order)
+    mat4.translate(modelViewMatrix, modelViewMatrix, [this.panX, this.panY, this.panZ]);
+
+    // Translate to rotation center
+    mat4.translate(modelViewMatrix, modelViewMatrix, [this.rotationCenterX, this.rotationCenterY, this.rotationCenterZ]);
+
+    // Apply rotation
+    // TODO: use delta rotation based on latest rotation center
+    mat4.rotateX(modelViewMatrix, modelViewMatrix, this.rotationX);
+    mat4.rotateY(modelViewMatrix, modelViewMatrix, this.rotationY);
+
+    // Translate back from rotation center
+    mat4.translate(modelViewMatrix, modelViewMatrix, [-this.rotationCenterX, -this.rotationCenterY, -this.rotationCenterZ]);
+
+    // Create normal matrix for lighting calculations
+    const normalMatrix = mat4.create();
+    mat4.invert(normalMatrix, modelViewMatrix);
+    mat4.transpose(normalMatrix, normalMatrix);
+
+    // Set uniforms
+    gl.useProgram(program);
+    gl.uniformMatrix4fv(modelViewUniform, false, modelViewMatrix);
+    gl.uniformMatrix4fv(normalMatrixUniform, false, normalMatrix);
+};
+
+
+/**
+ * Terrain class to handle terrain generation and rendering
+ */
+function Terrain(gl, terrainData, width, height) {
+    this.gl = gl;
+    this.terrain = terrainData;
+    this.width = width;
+    this.height = height;
+
+    this.initGeometry();
+    this.initShaders();
+    this.wireframeMode = true; // Default to wireframe mode
+}
+
+Terrain.prototype.initGeometry = function () {
+    const gl = this.gl;
+    const width = this.width;
+    const height = this.height;
+
+    // Create grid of vertices based on terrain dimensions
+    const positions = [];
+    const normals = [];
+    const indices = [];
+
+    // Generate vertex positions from height map
+    for (let z = 0; z < height; z++) {
+        for (let x = 0; x < width; x++) {
+            // Get height value directly from terrain data
+            const heightValue = this.terrain[z * width + x];
+
+            // Use direct pixel-to-unit mapping
+            positions.push(x);           // x position
+            positions.push(heightValue); // y position (height)
+            positions.push(z);           // z position
+
+            // Set initial normal to zero
+            normals.push(0);
+            normals.push(0);
+            normals.push(0);
+        }
+    }
+
+    // Generate indices for triangles
+    for (let z = 0; z < height - 1; z++) {
+        for (let x = 0; x < width - 1; x++) {
+            const topLeft = z * width + x;
+            const topRight = topLeft + 1;
+            const bottomLeft = (z + 1) * width + x;
+            const bottomRight = bottomLeft + 1;
+
+            // First triangle: topLeft -> bottomLeft -> topRight
+            indices.push(topLeft);
+            indices.push(bottomLeft);
+            indices.push(topRight);
+
+            // Second triangle: topRight -> bottomLeft -> bottomRight
+            indices.push(topRight);
+            indices.push(bottomLeft);
+            indices.push(bottomRight);
+        }
+    }
+
+    // Calculate normals
+    this.calculateNormals(positions, indices, normals);
+
+    // Create and bind position buffer
+    this.positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+    // Create and bind normal buffer
+    this.normalBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.normalBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+
+    // Create and bind index buffer
+    this.indexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(indices), gl.STATIC_DRAW);
+
+    this.indexCount = indices.length;
+};
+
+Terrain.prototype.calculateNormals = function (positions, indices, normals) {
+    // Calculate face normals and accumulate at vertices
+    for (let i = 0; i < indices.length; i += 3) {
+        const idx1 = indices[i] * 3;
+        const idx2 = indices[i + 1] * 3;
+        const idx3 = indices[i + 2] * 3;
+
+        // Get the three vertices of this face
+        const v1 = [positions[idx1], positions[idx1 + 1], positions[idx1 + 2]];
+        const v2 = [positions[idx2], positions[idx2 + 1], positions[idx2 + 2]];
+        const v3 = [positions[idx3], positions[idx3 + 1], positions[idx3 + 2]];
+
+        // Calculate vectors along two edges of the face
+        const edge1 = [v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2]];
+        const edge2 = [v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]];
+
+        // Calculate cross product to get face normal
+        const normal = [
+            edge1[1] * edge2[2] - edge1[2] * edge2[1],
+            edge1[2] * edge2[0] - edge1[0] * edge2[2],
+            edge1[0] * edge2[1] - edge1[1] * edge2[0]
+        ];
+
+        // Add this normal to all three vertices
+        for (let j = 0; j < 3; j++) {
+            normals[idx1 + j] += normal[j];
+            normals[idx2 + j] += normal[j];
+            normals[idx3 + j] += normal[j];
+        }
+    }
+
+    // Normalize all vertex normals
+    for (let i = 0; i < normals.length; i += 3) {
+        const x = normals[i];
+        const y = normals[i + 1];
+        const z = normals[i + 2];
+
+        const length = Math.sqrt(x * x + y * y + z * z);
+        if (length > 0) {
+            normals[i] = x / length;
+            normals[i + 1] = y / length;
+            normals[i + 2] = z / length;
+        }
+    }
+};
+
+Terrain.prototype.initShaders = function () {
+    const gl = this.gl;
+
+    // Terrain vertex shader
+    const terrainVsSource = `#version 300 es
+    in vec3 aVertexPosition;
+    in vec3 aVertexNormal;
+    
+    uniform mat4 uModelViewMatrix;
+    uniform mat4 uProjectionMatrix;
+    uniform mat4 uNormalMatrix;
+    
+    out vec3 vNormal;
+    out vec3 vPosition;
+    
+    void main() {
+        // Transform vertex position
+        vec4 worldPosition = vec4(aVertexPosition, 1.0);
+        gl_Position = uProjectionMatrix * uModelViewMatrix * worldPosition;
+        
+        // Pass normal and position to fragment shader
+        vNormal = mat3(uNormalMatrix) * aVertexNormal;
+        vPosition = aVertexPosition;
+    }`;
+
+    // Terrain fragment shader
+    const terrainFsSource = `#version 300 es
+    precision highp float;
+    
+    in vec3 vNormal;
+    in vec3 vPosition;
+    
+    out vec4 fragColor;
+    
+    void main() {
+        // Normalized normal vector
+        vec3 normal = normalize(vNormal);
+        
+        // Directional light from above and slightly to the side
+        vec3 lightDirection = normalize(vec3(0.5, 1.0, 0.5));
+        
+        // Calculate diffuse lighting
+        float diffuse = max(dot(normal, lightDirection), 0.0);
+        
+        // Ambient lighting
+        float ambient = 0.3;
+        
+        // Calculate lighting factor
+        float lightFactor = ambient + diffuse * 0.7;
+        
+        // Height-based coloring (blue at bottom to brown/green at top)
+        float height = (vPosition.y + 10.0) / 20.0; // Normalize height to 0-1 range
+        
+        vec3 baseColor;
+        if (height < 0.2) {
+            // Deep water (blue)
+            baseColor = vec3(0.0, 0.0, 0.5);
+        } else if (height < 0.3) {
+            // Shallow water (light blue)
+            float t = (height - 0.2) / 0.1;
+            baseColor = mix(vec3(0.0, 0.0, 0.5), vec3(0.0, 0.2, 0.8), t);
+        } else if (height < 0.35) {
+            // Sand (tan)
+            float t = (height - 0.3) / 0.05;
+            baseColor = mix(vec3(0.0, 0.2, 0.8), vec3(0.76, 0.7, 0.5), t);
+        } else if (height < 0.6) {
+            // Grass/land (green)
+            float t = (height - 0.35) / 0.25;
+            baseColor = mix(vec3(0.76, 0.7, 0.5), vec3(0.0, 0.5, 0.0), t);
+        } else if (height < 0.75) {
+            // Mountain (brown)
+            float t = (height - 0.6) / 0.15;
+            baseColor = mix(vec3(0.0, 0.5, 0.0), vec3(0.5, 0.35, 0.05), t);
+        } else {
+            // Snow cap (white)
+            float t = (height - 0.75) / 0.25;
+            baseColor = mix(vec3(0.5, 0.35, 0.05), vec3(1.0, 1.0, 1.0), t);
+        }
+        
+        // Apply lighting to color
+        vec3 finalColor = baseColor * lightFactor;
+        
+        fragColor = vec4(finalColor, 1.0);
+    }`;
+
+    // Compile shaders and create program
+    const vertexShader = compileShader(gl, gl.VERTEX_SHADER, terrainVsSource);
+    const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, terrainFsSource);
+
+    this.program = gl.createProgram();
+    gl.attachShader(this.program, vertexShader);
+    gl.attachShader(this.program, fragmentShader);
+    gl.linkProgram(this.program);
+
+    if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
+        throw new Error('Unable to initialize terrain shader program: ' +
+            gl.getProgramInfoLog(this.program));
+    }
+
+    // Store attribute and uniform locations
+    this.positionAttrib = gl.getAttribLocation(this.program, 'aVertexPosition');
+    this.normalAttrib = gl.getAttribLocation(this.program, 'aVertexNormal');
+
+    this.modelViewMatrixUniform = gl.getUniformLocation(this.program, 'uModelViewMatrix');
+    this.projectionMatrixUniform = gl.getUniformLocation(this.program, 'uProjectionMatrix');
+    this.normalMatrixUniform = gl.getUniformLocation(this.program, 'uNormalMatrix');
+};
+
+Terrain.prototype.toggleWireframe = function () {
+    this.wireframeMode = !this.wireframeMode;
+};
+
+Terrain.prototype.render = function (camera, projectionMatrix) {
+    const gl = this.gl;
+
+    // Use terrain shader program
+    gl.useProgram(this.program);
+
+    // Set projection matrix
+    gl.uniformMatrix4fv(this.projectionMatrixUniform, false, projectionMatrix);
+
+    // Update model-view matrix from camera
+    camera.updateModelViewMatrix(gl, this.program, this.modelViewMatrixUniform, this.normalMatrixUniform);
+
+    // Bind terrain geometry buffers
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+    gl.vertexAttribPointer(this.positionAttrib, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.positionAttrib);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.normalBuffer);
+    gl.vertexAttribPointer(this.normalAttrib, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.normalAttrib);
+
+    // Bind index buffer
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+
+    // Draw terrain using lines (wireframe) or triangles based on mode
+    gl.drawElements(
+        this.wireframeMode ? gl.LINES : gl.TRIANGLES,
+        this.indexCount,
+        gl.UNSIGNED_INT,
+        0
+    );
+
+    // Cleanup
+    gl.disableVertexAttribArray(this.positionAttrib);
+    gl.disableVertexAttribArray(this.normalAttrib);
+};
+
+/**
+ * ParticleSystem class to handle grain particles
+ */
+function ParticleSystem(gl, grainData) {
+    this.gl = gl;
+    this.grains = grainData;
+
     this.initSphereGeometry();
-    this.initTerrainGeometry();
     this.initShaders();
     this.initBuffers();
 }
 
-RenderEngine.prototype.initSphereGeometry = function () {
+ParticleSystem.prototype.initSphereGeometry = function () {
     const gl = this.gl;
 
     // Create a sphere geometry
@@ -108,125 +427,7 @@ RenderEngine.prototype.initSphereGeometry = function () {
     this.sphereIndexCount = indices.length;
 };
 
-RenderEngine.prototype.initTerrainGeometry = function () {
-    const gl = this.gl;
-    const width = this.width;
-    const height = this.height;
-
-    // Create grid of vertices based on terrain dimensions
-    const positions = [];
-    const normals = [];
-    const indices = [];
-
-    // Generate vertex positions from height map
-    // Each pixel becomes a vertex in 3D space
-    for (let z = 0; z < height; z++) {
-        for (let x = 0; x < width; x++) {
-            // Get height value directly from terrain data (already processed)
-            const heightValue = this.terrain[z * width + x];
-
-            // Use direct pixel-to-unit mapping
-            positions.push(x);           // x position
-            positions.push(heightValue); // y position (height)
-            positions.push(z);           // z position
-
-            // Set initial normal to zero
-            normals.push(0);
-            normals.push(0);
-            normals.push(0);
-        }
-    }
-
-    // Generate indices for triangles
-    // This connects adjacent terrain points into triangles
-    for (let z = 0; z < height - 1; z++) {
-        for (let x = 0; x < width - 1; x++) {
-            const topLeft = z * width + x;
-            const topRight = topLeft + 1;
-            const bottomLeft = (z + 1) * width + x;
-            const bottomRight = bottomLeft + 1;
-
-            // First triangle: topLeft -> bottomLeft -> topRight
-            indices.push(topLeft);
-            indices.push(bottomLeft);
-            indices.push(topRight);
-
-            // Second triangle: topRight -> bottomLeft -> bottomRight
-            indices.push(topRight);
-            indices.push(bottomLeft);
-            indices.push(bottomRight);
-        }
-    }
-
-    // Calculate normals
-    this.calculateTerrainNormals(positions, indices, normals);
-
-    // Create and bind position buffer
-    this.terrainPositionBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.terrainPositionBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-
-    // Create and bind normal buffer
-    this.terrainNormalBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.terrainNormalBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
-
-    // Create and bind index buffer
-    this.terrainIndexBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrainIndexBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(indices), gl.STATIC_DRAW);
-
-    this.terrainIndexCount = indices.length;
-};
-
-
-RenderEngine.prototype.calculateTerrainNormals = function (positions, indices, normals) {
-    // Calculate face normals and accumulate at vertices
-    for (let i = 0; i < indices.length; i += 3) {
-        const idx1 = indices[i] * 3;
-        const idx2 = indices[i + 1] * 3;
-        const idx3 = indices[i + 2] * 3;
-
-        // Get the three vertices of this face
-        const v1 = [positions[idx1], positions[idx1 + 1], positions[idx1 + 2]];
-        const v2 = [positions[idx2], positions[idx2 + 1], positions[idx2 + 2]];
-        const v3 = [positions[idx3], positions[idx3 + 1], positions[idx3 + 2]];
-
-        // Calculate vectors along two edges of the face
-        const edge1 = [v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2]];
-        const edge2 = [v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]];
-
-        // Calculate cross product to get face normal
-        const normal = [
-            edge1[1] * edge2[2] - edge1[2] * edge2[1],
-            edge1[2] * edge2[0] - edge1[0] * edge2[2],
-            edge1[0] * edge2[1] - edge1[1] * edge2[0]
-        ];
-
-        // Add this normal to all three vertices
-        for (let j = 0; j < 3; j++) {
-            normals[idx1 + j] += normal[j];
-            normals[idx2 + j] += normal[j];
-            normals[idx3 + j] += normal[j];
-        }
-    }
-
-    // Normalize all vertex normals
-    for (let i = 0; i < normals.length; i += 3) {
-        const x = normals[i];
-        const y = normals[i + 1];
-        const z = normals[i + 2];
-
-        const length = Math.sqrt(x * x + y * y + z * z);
-        if (length > 0) {
-            normals[i] = x / length;
-            normals[i + 1] = y / length;
-            normals[i + 2] = z / length;
-        }
-    }
-};
-
-RenderEngine.prototype.initShaders = function () {
+ParticleSystem.prototype.initShaders = function () {
     const gl = this.gl;
 
     // Vertex shader for 3D spheres
@@ -296,8 +497,8 @@ RenderEngine.prototype.initShaders = function () {
     }`;
 
     // Create shaders
-    const vertexShader = this.compileShader(gl.VERTEX_SHADER, vsSource);
-    const fragmentShader = this.compileShader(gl.FRAGMENT_SHADER, fsSource);
+    const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vsSource);
+    const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fsSource);
 
     // Create program
     this.program = gl.createProgram();
@@ -318,243 +519,33 @@ RenderEngine.prototype.initShaders = function () {
     this.modelViewMatrixUniform = gl.getUniformLocation(this.program, 'uModelViewMatrix');
     this.projectionMatrixUniform = gl.getUniformLocation(this.program, 'uProjectionMatrix');
     this.normalMatrixUniform = gl.getUniformLocation(this.program, 'uNormalMatrix');
-
-    // Add terrain shader code:
-    const terrainVsSource = `#version 300 es
-    in vec3 aVertexPosition;
-    in vec3 aVertexNormal;
-    
-    uniform mat4 uModelViewMatrix;
-    uniform mat4 uProjectionMatrix;
-    uniform mat4 uNormalMatrix;
-    
-    out vec3 vNormal;
-    out vec3 vPosition;
-    
-    void main() {
-        // Transform vertex position
-        vec4 worldPosition = vec4(aVertexPosition, 1.0);
-        gl_Position = uProjectionMatrix * uModelViewMatrix * worldPosition;
-        
-        // Pass normal and position to fragment shader
-        vNormal = mat3(uNormalMatrix) * aVertexNormal;
-        vPosition = aVertexPosition;
-    }`;
-
-    const terrainFsSource = `#version 300 es
-    precision highp float;
-    
-    in vec3 vNormal;
-    in vec3 vPosition;
-    
-    out vec4 fragColor;
-    
-    void main() {
-        // Normalized normal vector
-        vec3 normal = normalize(vNormal);
-        
-        // Directional light from above and slightly to the side
-        vec3 lightDirection = normalize(vec3(0.5, 1.0, 0.5));
-        
-        // Calculate diffuse lighting
-        float diffuse = max(dot(normal, lightDirection), 0.0);
-        
-        // Ambient lighting
-        float ambient = 0.3;
-        
-        // Calculate lighting factor
-        float lightFactor = ambient + diffuse * 0.7;
-        
-        // Height-based coloring (blue at bottom to brown/green at top)
-        float height = (vPosition.y + 10.0) / 20.0; // Normalize height to 0-1 range
-        
-        vec3 baseColor;
-        if (height < 0.2) {
-            // Deep water (blue)
-            baseColor = vec3(0.0, 0.0, 0.5);
-        } else if (height < 0.3) {
-            // Shallow water (light blue)
-            float t = (height - 0.2) / 0.1;
-            baseColor = mix(vec3(0.0, 0.0, 0.5), vec3(0.0, 0.2, 0.8), t);
-        } else if (height < 0.35) {
-            // Sand (tan)
-            float t = (height - 0.3) / 0.05;
-            baseColor = mix(vec3(0.0, 0.2, 0.8), vec3(0.76, 0.7, 0.5), t);
-        } else if (height < 0.6) {
-            // Grass/land (green)
-            float t = (height - 0.35) / 0.25;
-            baseColor = mix(vec3(0.76, 0.7, 0.5), vec3(0.0, 0.5, 0.0), t);
-        } else if (height < 0.75) {
-            // Mountain (brown)
-            float t = (height - 0.6) / 0.15;
-            baseColor = mix(vec3(0.0, 0.5, 0.0), vec3(0.5, 0.35, 0.05), t);
-        } else {
-            // Snow cap (white)
-            float t = (height - 0.75) / 0.25;
-            baseColor = mix(vec3(0.5, 0.35, 0.05), vec3(1.0, 1.0, 1.0), t);
-        }
-        
-        // Apply lighting to color
-        vec3 finalColor = baseColor * lightFactor;
-        
-        fragColor = vec4(finalColor, 1.0);
-    }`;
-
-    // Create and compile terrain shaders
-    const terrainVertexShader = this.compileShader(gl.VERTEX_SHADER, terrainVsSource);
-    const terrainFragmentShader = this.compileShader(gl.FRAGMENT_SHADER, terrainFsSource);
-
-    // Create terrain program
-    this.terrainProgram = gl.createProgram();
-    gl.attachShader(this.terrainProgram, terrainVertexShader);
-    gl.attachShader(this.terrainProgram, terrainFragmentShader);
-    gl.linkProgram(this.terrainProgram);
-
-    if (!gl.getProgramParameter(this.terrainProgram, gl.LINK_STATUS)) {
-        throw new Error('Unable to initialize terrain shader program: ' +
-            gl.getProgramInfoLog(this.terrainProgram));
-    }
-
-    // Store terrain attribute and uniform locations
-    this.terrainPositionAttrib = gl.getAttribLocation(this.terrainProgram, 'aVertexPosition');
-    this.terrainNormalAttrib = gl.getAttribLocation(this.terrainProgram, 'aVertexNormal');
-
-    this.terrainModelViewMatrixUniform = gl.getUniformLocation(this.terrainProgram, 'uModelViewMatrix');
-    this.terrainProjectionMatrixUniform = gl.getUniformLocation(this.terrainProgram, 'uProjectionMatrix');
-    this.terrainNormalMatrixUniform = gl.getUniformLocation(this.terrainProgram, 'uNormalMatrix');
-
-    // Set up perspective and view matrices
-    this.updateProjectionMatrix();
-}
-
-RenderEngine.prototype.updateProjectionMatrix = function () {
-    const gl = this.gl;
-
-    // Create perspective matrix
-    const fieldOfView = 45 * Math.PI / 180;   // in radians
-    const aspect = gl.canvas.width / gl.canvas.height;
-    const zNear = 0.1;
-    const zFar = 1000.0;
-
-    const projectionMatrix = mat4.create();
-    mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
-
-    // Set projection matrix uniform
-    gl.useProgram(this.program);
-    gl.uniformMatrix4fv(this.projectionMatrixUniform, false, projectionMatrix);
-
-    // Set projection matrix for terrain program
-    gl.useProgram(this.terrainProgram);
-    gl.uniformMatrix4fv(this.terrainProjectionMatrixUniform, false, projectionMatrix);
-
 };
 
-RenderEngine.prototype.updateModelViewMatrix = function () {
-    const gl = this.gl;
-
-    // Create model-view matrix
-    const modelViewMatrix = mat4.create();
-
-    // Apply camera transformations (in reverse order)
-    mat4.translate(modelViewMatrix, modelViewMatrix, [this.panX, this.panY, this.panZ]);
-
-    // Translate to rotation center
-    mat4.translate(modelViewMatrix, modelViewMatrix, [this.rotationCenterX, this.rotationCenterY, this.rotationCenterZ]);
-
-    // Apply rotation
-    // TODO: use delta rotation based on latest rotation center
-    mat4.rotateX(modelViewMatrix, modelViewMatrix, this.rotationX);
-    mat4.rotateY(modelViewMatrix, modelViewMatrix, this.rotationY);
-
-    // Translate back from rotation center
-    mat4.translate(modelViewMatrix, modelViewMatrix, [-this.rotationCenterX, -this.rotationCenterY, -this.rotationCenterZ]);
-
-    // Create normal matrix for lighting calculations
-    const normalMatrix = mat4.create();
-    mat4.invert(normalMatrix, modelViewMatrix);
-    mat4.transpose(normalMatrix, normalMatrix);
-
-    // Set uniforms
-    gl.useProgram(this.program);
-    gl.uniformMatrix4fv(this.modelViewMatrixUniform, false, modelViewMatrix);
-    gl.uniformMatrix4fv(this.normalMatrixUniform, false, normalMatrix);
-
-    // Set uniforms for terrain program
-    gl.useProgram(this.terrainProgram);
-    gl.uniformMatrix4fv(this.terrainModelViewMatrixUniform, false, modelViewMatrix);
-    gl.uniformMatrix4fv(this.terrainNormalMatrixUniform, false, normalMatrix);
-};
-
-RenderEngine.prototype.compileShader = function (type, source) {
-    const gl = this.gl;
-    const shader = gl.createShader(type);
-
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        const info = gl.getShaderInfoLog(shader);
-        gl.deleteShader(shader);
-        throw new Error('Shader compilation failed: ' + info);
-    }
-
-    return shader;
-}
-
-RenderEngine.prototype.initBuffers = function () {
+ParticleSystem.prototype.initBuffers = function () {
     const gl = this.gl;
 
     // Create buffer for instance data (grain positions and velocities)
     this.grainBuffer = gl.createBuffer();
-}
+};
 
-RenderEngine.prototype.updateGrains = function () {
+ParticleSystem.prototype.updateGrains = function () {
     const gl = this.gl;
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.grainBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, this.grains, gl.DYNAMIC_DRAW);
-}
-
-RenderEngine.prototype.setRotation = function (rotX, rotY) {
-    this.rotationX = rotX;
-    this.rotationY = rotY;
 };
 
-RenderEngine.prototype.setRotationCenter = function (x, y, z) {
-    this.rotationCenterX = x;
-    this.rotationCenterY = y;
-    this.rotationCenterZ = z;
-};
-
-RenderEngine.prototype.setPan = function (x, y, z) {
-    if (z !== undefined) this.panZ = z;
-    this.panX = x;
-    this.panY = y;
-};
-
-RenderEngine.prototype.render = function () {
+ParticleSystem.prototype.render = function (camera, projectionMatrix) {
     const gl = this.gl;
 
-    // Update view matrix with current camera parameters
-    // TODO: only update on changes
-    this.updateModelViewMatrix();
-
-    // Clear canvas
-    gl.clearColor(0.7, 0.8, 0.9, 1.0); // Sky blue background
-    gl.clearDepth(1.0);
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(gl.LEQUAL);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    this.renderGrains();
-    this.renderTerrain();
-}
-
-RenderEngine.prototype.renderGrains = function () {
-    const gl = this.gl;
-
-    // Use shader program
+    // Use particle shader program
     gl.useProgram(this.program);
+
+    // Set projection matrix
+    gl.uniformMatrix4fv(this.projectionMatrixUniform, false, projectionMatrix);
+
+    // Update model-view matrix from camera
+    camera.updateModelViewMatrix(gl, this.program, this.modelViewMatrixUniform, this.normalMatrixUniform);
 
     // Bind sphere geometry buffers
     gl.bindBuffer(gl.ARRAY_BUFFER, this.spherePositionBuffer);
@@ -589,37 +580,96 @@ RenderEngine.prototype.renderGrains = function () {
     gl.disableVertexAttribArray(this.positionAttrib);
     gl.disableVertexAttribArray(this.normalAttrib);
     gl.disableVertexAttribArray(this.instanceDataAttrib);
+};
+
+/**
+ * RenderEngine class to manage the overall rendering
+ */
+function RenderEngine(terrain, canvas, grains, width, height) {
+    this.canvas = canvas;
+    this.gl = canvas.getContext('webgl2', {
+        antialias: true,
+    });
+
+    if (!this.gl) {
+        throw new Error('WebGL2 not supported');
+    }
+
+    // Initialize components
+    this.camera = new Camera();
+    this.terrain = new Terrain(this.gl, terrain, width, height);
+    this.particles = new ParticleSystem(this.gl, grains);
+
+    // Set up the projection matrix
+    this.projectionMatrix = mat4.create();
+    this.updateProjectionMatrix();
 }
 
-RenderEngine.prototype.renderTerrain = function () {
+RenderEngine.prototype.updateProjectionMatrix = function () {
     const gl = this.gl;
 
-    // Use terrain shader program
-    gl.useProgram(this.terrainProgram);
+    // Create perspective matrix
+    const fieldOfView = 45 * Math.PI / 180;   // in radians
+    const aspect = gl.canvas.width / gl.canvas.height;
+    const zNear = 0.1;
+    const zFar = 1000.0;
 
-    // Bind terrain geometry buffers
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.terrainPositionBuffer);
-    gl.vertexAttribPointer(this.terrainPositionAttrib, 3, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(this.terrainPositionAttrib);
+    mat4.perspective(this.projectionMatrix, fieldOfView, aspect, zNear, zFar);
+};
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.terrainNormalBuffer);
-    gl.vertexAttribPointer(this.terrainNormalAttrib, 3, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(this.terrainNormalAttrib);
+RenderEngine.prototype.setRotation = function (rotX, rotY) {
+    this.camera.setRotation(rotX, rotY);
+};
 
-    // Bind index buffer
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.terrainIndexBuffer);
+RenderEngine.prototype.setRotationCenter = function (x, y, z) {
+    this.camera.setRotationCenter(x, y, z);
+};
 
-    // Draw terrain
-    gl.drawElements(
-        gl.LINES,
-        this.terrainIndexCount,
-        gl.UNSIGNED_INT,
-        0
-    );
+RenderEngine.prototype.setPan = function (x, y, z) {
+    this.camera.setPan(x, y, z);
+};
 
-    // Cleanup
-    gl.disableVertexAttribArray(this.terrainPositionAttrib);
-    gl.disableVertexAttribArray(this.terrainNormalAttrib);
+RenderEngine.prototype.toggleWireframe = function () {
+    this.terrain.toggleWireframe();
+};
+
+RenderEngine.prototype.updateGrains = function () {
+    this.particles.updateGrains();
+};
+
+RenderEngine.prototype.render = function () {
+    const gl = this.gl;
+
+    // Clear canvas
+    gl.clearColor(0.7, 0.8, 0.9, 1.0); // Sky blue background
+    gl.clearDepth(1.0);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Render particles
+    this.particles.render(this.camera, this.projectionMatrix);
+
+    // Render terrain
+    this.terrain.render(this.camera, this.projectionMatrix);
+};
+
+/**
+ * Helper function to compile a shader
+ */
+function compileShader(gl, type, source) {
+    const shader = gl.createShader(type);
+
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const info = gl.getShaderInfoLog(shader);
+        gl.deleteShader(shader);
+        throw new Error('Shader compilation failed: ' + info);
+    }
+
+    return shader;
 }
 
 async function init_wasm() {
@@ -691,8 +741,11 @@ async function init_wasm() {
                     event.data.centerZ
                 );
             }
-        }
-        else {
+        } else if (event.data.action === "toggleWireframe") {
+            if (renderEngine) {
+                renderEngine.toggleWireframe();
+            }
+        } else {
             console.log("Unknown message:", event.data);
         }
     };
