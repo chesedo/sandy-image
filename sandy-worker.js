@@ -63,6 +63,212 @@ Camera.prototype.updateModelViewMatrix = function (gl, program, modelViewUniform
     gl.uniformMatrix4fv(normalMatrixUniform, false, normalMatrix);
 };
 
+/**
+ * CoordinateGizmo class to render XYZ orientation arrows
+ */
+function CoordinateGizmo(gl, camera) {
+    this.gl = gl;
+    this.camera = camera;
+
+    this.initArrowGeometry();
+    this.initShaders();
+}
+
+CoordinateGizmo.prototype.initArrowGeometry = function () {
+    const gl = this.gl;
+
+    // Create a single arrow geometry (shaft + cone tip)
+    // Arrow pointing along the positive Z-axis (as a base orientation)
+    // Total length is 5 units with the cone tip being 1 unit
+
+    // Create vertices for a single arrow
+    const positions = [
+        // Shaft (a line from origin to tip of shaft)
+        0, 0, 0,    // base
+        0, 0, 4,    // tip of shaft
+
+        // Cone tip (pyramid with 4 triangular faces)
+        0, 0, 4,    // base of cone
+        0, 0, 5,    // tip of cone 
+        0, 0.5, 4,  // cone edge 1
+        0.5, 0, 4,  // cone edge 2
+        0, -0.5, 4, // cone edge 3
+        -0.5, 0, 4  // cone edge 4
+    ];
+
+    // Indices for drawing the arrow (both as lines and triangles)
+    const indices = [
+        // Shaft as a line
+        0, 1,
+
+        // Cone as triangles (4 triangular faces of the pyramid)
+        2, 3, 4,  // face 1
+        2, 3, 5,  // face 2
+        2, 3, 6,  // face 3
+        2, 3, 7   // face 4
+    ];
+
+    // Create and bind position buffer
+    this.positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+    // Create and bind index buffer
+    this.indexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+    this.shaftIndexCount = 2;          // 1 line (2 vertices)
+    this.coneIndexCount = 12;          // 4 triangles (3 vertices each = 12)
+};
+
+CoordinateGizmo.prototype.initShaders = function () {
+    const gl = this.gl;
+
+    // Vertex shader with model transformation
+    const vsSource = `#version 300 es
+    in vec3 aVertexPosition;
+    
+    uniform mat4 uModelViewMatrix;
+    uniform mat4 uProjectionMatrix;
+    uniform mat4 uAxisTransform;  // Transform for each axis
+    uniform vec3 uAxisColor;      // Color for current axis
+    
+    out vec3 vColor;
+    
+    void main() {
+        // Apply axis-specific transform first, then model-view
+        vec4 transformedPosition = uAxisTransform * vec4(aVertexPosition, 1.0);
+        gl_Position = uProjectionMatrix * uModelViewMatrix * transformedPosition;
+        
+        // Pass color to fragment shader
+        vColor = uAxisColor;
+    }`;
+
+    // Fragment shader
+    const fsSource = `#version 300 es
+    precision highp float;
+    
+    in vec3 vColor;
+    out vec4 fragColor;
+    
+    void main() {
+        fragColor = vec4(vColor, 1.0);
+    }`;
+
+    // Compile shaders
+    const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vsSource);
+    const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fsSource);
+
+    // Create shader program
+    this.program = gl.createProgram();
+    gl.attachShader(this.program, vertexShader);
+    gl.attachShader(this.program, fragmentShader);
+    gl.linkProgram(this.program);
+
+    if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
+        throw new Error('Unable to initialize gizmo shader program: ' +
+            gl.getProgramInfoLog(this.program));
+    }
+
+    // Store attribute and uniform locations
+    this.positionAttrib = gl.getAttribLocation(this.program, 'aVertexPosition');
+
+    this.modelViewMatrixUniform = gl.getUniformLocation(this.program, 'uModelViewMatrix');
+    this.projectionMatrixUniform = gl.getUniformLocation(this.program, 'uProjectionMatrix');
+    this.axisTransformUniform = gl.getUniformLocation(this.program, 'uAxisTransform');
+    this.axisColorUniform = gl.getUniformLocation(this.program, 'uAxisColor');
+};
+
+CoordinateGizmo.prototype.render = function () {
+    const gl = this.gl;
+
+    // Save current viewport and clear color
+    const viewport = gl.getParameter(gl.VIEWPORT);
+
+    // Define a region in the bottom-right corner for our gizmo
+    const gizmoSize = 100; // Size in pixels
+    gl.viewport(gl.canvas.width - gizmoSize, 0, gizmoSize, gizmoSize);
+
+    // Use gizmo shader program
+    gl.useProgram(this.program);
+
+    // Set projection matrix (orthographic for the gizmo view)
+    const orthoMatrix = mat4.create();
+    mat4.ortho(orthoMatrix, -6, 6, -6, 6, 0.1, 100);
+    gl.uniformMatrix4fv(this.projectionMatrixUniform, false, orthoMatrix);
+
+    // Create model-view matrix for the gizmo
+    const modelViewMatrix = mat4.create();
+
+    // Position the gizmo in front of the camera
+    mat4.translate(modelViewMatrix, modelViewMatrix, [0, 0, -12]);
+
+    // Apply camera rotation
+    mat4.rotateX(modelViewMatrix, modelViewMatrix, this.camera.rotationX);
+    mat4.rotateY(modelViewMatrix, modelViewMatrix, this.camera.rotationY);
+
+    // Set model-view matrix uniform
+    gl.uniformMatrix4fv(this.modelViewMatrixUniform, false, modelViewMatrix);
+
+    // Bind arrow geometry buffers
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+    gl.vertexAttribPointer(this.positionAttrib, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.positionAttrib);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+
+    // Create transformation matrices for each axis
+    // These will rotate our base arrow (Z-axis) to point in X, Y or Z direction
+
+    // X-axis transform (rotate from Z to X)
+    const xAxisTransform = mat4.create();
+    mat4.rotateY(xAxisTransform, xAxisTransform, Math.PI / 2); // 90 degrees around Y-axis
+
+    // Y-axis transform (rotate from Z to Y)
+    const yAxisTransform = mat4.create();
+    mat4.rotateX(yAxisTransform, yAxisTransform, -Math.PI / 2); // -90 degrees around X-axis
+
+    // Z-axis transform (identity - arrow already points along Z)
+    const zAxisTransform = mat4.create();
+
+    // Draw X-axis (red)
+    gl.uniform3f(this.axisColorUniform, 1.0, 0.0, 0.0); // Red
+    gl.uniformMatrix4fv(this.axisTransformUniform, false, xAxisTransform);
+
+    // Draw shaft as line
+    gl.lineWidth(3.0); // Thicker line for better visibility
+    gl.drawElements(gl.LINES, this.shaftIndexCount, gl.UNSIGNED_SHORT, 0);
+
+    // Draw cone as triangles
+    gl.drawElements(gl.TRIANGLES, this.coneIndexCount, gl.UNSIGNED_SHORT, this.shaftIndexCount * 2);
+
+    // Draw Y-axis (green)
+    gl.uniform3f(this.axisColorUniform, 0.0, 1.0, 0.0); // Green
+    gl.uniformMatrix4fv(this.axisTransformUniform, false, yAxisTransform);
+
+    // Draw shaft as line
+    gl.drawElements(gl.LINES, this.shaftIndexCount, gl.UNSIGNED_SHORT, 0);
+
+    // Draw cone as triangles
+    gl.drawElements(gl.TRIANGLES, this.coneIndexCount, gl.UNSIGNED_SHORT, this.shaftIndexCount * 2);
+
+    // Draw Z-axis (blue)
+    gl.uniform3f(this.axisColorUniform, 0.0, 0.0, 1.0); // Blue
+    gl.uniformMatrix4fv(this.axisTransformUniform, false, zAxisTransform);
+
+    // Draw shaft as line
+    gl.drawElements(gl.LINES, this.shaftIndexCount, gl.UNSIGNED_SHORT, 0);
+
+    // Draw cone as triangles
+    gl.drawElements(gl.TRIANGLES, this.coneIndexCount, gl.UNSIGNED_SHORT, this.shaftIndexCount * 2);
+
+    // Restore WebGL state
+    gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+
+    // Cleanup
+    gl.disableVertexAttribArray(this.positionAttrib);
+};
 
 /**
  * Terrain class to handle terrain generation and rendering
@@ -597,6 +803,7 @@ function RenderEngine(terrain, canvas, grains, width, height) {
 
     // Initialize components
     this.camera = new Camera();
+    this.coordinateGizmo = new CoordinateGizmo(this.gl, this.camera);
     this.terrain = new Terrain(this.gl, terrain, width, height);
     this.particles = new ParticleSystem(this.gl, grains);
 
@@ -652,6 +859,9 @@ RenderEngine.prototype.render = function () {
 
     // Render terrain
     this.terrain.render(this.camera, this.projectionMatrix);
+
+    // Render coordinate gizmo
+    this.coordinateGizmo.render();
 };
 
 /**

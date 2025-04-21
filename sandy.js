@@ -18,11 +18,12 @@ function SandyImage(imgSelector, options) {
     this.createGrainFn = options.createGrainFn;
 
     // 3D navigation parameters
-    this.panX = -25;
-    this.panY = -25;
+    // Default to north-east view
+    this.panX = 0;
+    this.panY = 25;
     this.panZ = options.initialZoom;
-    this.rotationX = -Math.PI / 2; // -90 degrees
-    this.rotationY = 0.0;  // Initial Y rotation (in radians)
+    this.rotationX = Math.PI / 4; // 45 degrees
+    this.rotationY = -Math.PI / 4;  // -45 degrees
 
     // Mouse/touch control state
     this.isRotating = false;

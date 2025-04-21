@@ -163,10 +163,10 @@
                 const resetButton = document.getElementById('reset-view');
                 resetButton.addEventListener('click', function () {
                     // Reset camera to initial position
-                    sandy_image.rotationX = -Math.PI / 4; // -90 degrees
-                    sandy_image.rotationY = 0.0;
-                    sandy_image.panX = -25;
-                    sandy_image.panY = -35;
+                    sandy_image.rotationX = Math.PI / 4; // 45 degrees
+                    sandy_image.rotationY = -Math.PI / 4; // 45 degrees
+                    sandy_image.panX = 0;
+                    sandy_image.panY = 25;
                     sandy_image.panZ = -100;
 
                     sandy_image.worker.postMessage({
@@ -181,10 +181,10 @@
 
                 // Preset view buttons
                 document.getElementById('top-view').addEventListener('click', function () {
-                    sandy_image.rotationX = -Math.PI / 2; // -90 degrees
+                    sandy_image.rotationX = Math.PI / 2; // 90 degrees
                     sandy_image.rotationY = 0.0;
                     sandy_image.panX = -25;
-                    sandy_image.panY = -25;
+                    sandy_image.panY = 25;
                     sandy_image.panZ = -100;
 
                     sandy_image.worker.postMessage({
