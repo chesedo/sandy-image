@@ -426,5 +426,5 @@ SandyImage.prototype.startWorker = function (imageData) {
 };
 
 SandyImage.prototype.nextFrame = function () {
-    this.worker.postMessage({});
+    this.worker.postMessage({ action: 'nextFrame' });
 }

@@ -559,6 +559,7 @@ function ParticleSystem(gl, positions, velocities) {
     this.initSphereGeometry();
     this.initShaders();
     this.initBuffers();
+    this.updateGrains();
 }
 
 ParticleSystem.prototype.initSphereGeometry = function () {
@@ -973,6 +974,14 @@ async function init_wasm() {
             if (renderEngine) {
                 renderEngine.toggleWireframe();
             }
+        } else if (event.data.action === "nextFrame") {
+            image.next();
+
+            // Update 
+            renderEngine.updateGrains();
+
+            // Render the scene
+            renderEngine.render();
         } else {
             console.log("Unknown message:", event.data);
         }
