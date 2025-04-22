@@ -75,8 +75,8 @@ impl Grain {
     /// Damper the velocity based on the damping factor
     #[inline]
     fn apply_damping(&mut self, damping_factor: f32) {
-        self.vx = self.vx.clamp(-1 as f32, 1 as f32);
-        self.vy = self.vy.clamp(-1 as f32, 1 as f32);
+        self.vx = self.vx.clamp(-1_f32, 1_f32);
+        self.vy = self.vy.clamp(-1_f32, 1_f32);
 
         self.vx *= damping_factor;
         self.vy *= damping_factor;
@@ -109,6 +109,7 @@ impl Grain {
     }
 
     /// Repel from mouse if within repel radius
+    #[allow(clippy::too_many_arguments)]
     fn repel_from_mouse(
         &mut self,
         mouse_x: f32,
@@ -175,6 +176,7 @@ pub struct Image {
 #[wasm_bindgen]
 impl Image {
     /// Create a new image for the elevation data, initial grains, and other parameters
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         elevation_data: &[u8],
         grains: &[f32],
@@ -293,7 +295,7 @@ impl Image {
     #[inline]
     fn update_elevation_and_buffer_data(
         grain: &Grain,
-        elevation_data: &mut Vec<i8>,
+        elevation_data: &mut [i8],
         alpha_buffer: &mut [u8],
         size: u32,
         width: u32,

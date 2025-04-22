@@ -1,5 +1,5 @@
 /.direnv
 /node_modules
 /target
-.envrc
 sandy-image*
+result
