@@ -1,4 +1,4 @@
-use std::u32;
+use std::{collections::HashMap, u32};
 
 use js_sys::{Float32Array, Uint8Array};
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -12,6 +12,8 @@ pub struct Image {
     damping_factor: f32,
     width: f32,
     height: f32,
+    grid: HashMap<(i32, i32, i32), Vec<u32>>, // Maps grid cell to list of grain indices
+    cell_size: f32,                           // Size of each grid cell
 }
 
 #[wasm_bindgen]
@@ -101,6 +103,8 @@ impl Image {
             damping_factor,
             width,
             height,
+            grid: Default::default(),
+            cell_size: 1.0, // Assuming each grid cell is 1x1
         }
     }
 
@@ -165,8 +169,147 @@ impl Image {
         }
     }
 
+    fn update_spatial_grid(&mut self) {
+        self.grid.clear();
+
+        for i in 0..self.positions.length() / 3 {
+            let x = self.positions.get_index(i * 3);
+            let y = self.positions.get_index(i * 3 + 1);
+            let z = self.positions.get_index(i * 3 + 2);
+
+            // Compute grid cell (using integer division)
+            let cell_x = (x / self.cell_size).floor() as i32;
+            let cell_y = (y / self.cell_size).floor() as i32;
+            let cell_z = (z / self.cell_size).floor() as i32;
+
+            // Add particle index to this cell
+            self.grid
+                .entry((cell_x, cell_y, cell_z))
+                .or_insert_with(Vec::new)
+                .push(i);
+        }
+    }
+
+    fn check_collisions(&self) {
+        for i in 0..self.positions.length() / 3 {
+            let x = self.positions.get_index(i * 3);
+            let y = self.positions.get_index(i * 3 + 1);
+            let z = self.positions.get_index(i * 3 + 2);
+
+            // Compute grid cell
+            let cell_x = (x / self.cell_size).floor() as i32;
+            let cell_y = (y / self.cell_size).floor() as i32;
+            let cell_z = (z / self.cell_size).floor() as i32;
+
+            // Check collision with particles in same and neighboring cells
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        if let Some(particles) =
+                            self.grid.get(&(cell_x + dx, cell_y + dy, cell_z + dz))
+                        {
+                            for &j in particles {
+                                if i != j {
+                                    // Don't collide with self
+                                    // Check collision and respond
+                                    self.check_and_resolve_collision(i, j);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn check_and_resolve_collision(&self, i: u32, j: u32) {
+        // Get positions
+        let x1 = self.positions.get_index(i * 3);
+        let y1 = self.positions.get_index(i * 3 + 1);
+        let z1 = self.positions.get_index(i * 3 + 2);
+
+        let x2 = self.positions.get_index(j * 3);
+        let y2 = self.positions.get_index(j * 3 + 1);
+        let z2 = self.positions.get_index(j * 3 + 2);
+
+        // Calculate distance squared (avoid square root for performance)
+        let dx = x2 - x1;
+        let dy = y2 - y1;
+        let dz = z2 - z1;
+        let distance_squared = dx * dx + dy * dy + dz * dz;
+
+        // Assuming particle radius is 0.5 (diameter 1.0)
+        let min_distance = 1.0; // Sum of radii
+
+        if distance_squared < min_distance * min_distance {
+            // Collision detected!
+
+            // Calculate actual distance (now we need the square root)
+            let distance = distance_squared.sqrt();
+
+            // Normalize the collision vector
+            let nx = dx / distance;
+            let ny = dy / distance;
+            let nz = dz / distance;
+
+            // Calculate overlap
+            let overlap = min_distance - distance;
+
+            // Resolve position overlap (push particles apart)
+            let push_factor = overlap * 0.5; // Each particle moves half the overlap
+
+            // Update positions to prevent overlap
+            self.positions.set_index(i * 3, x1 - nx * push_factor);
+            self.positions.set_index(i * 3 + 1, y1 - ny * push_factor);
+            self.positions.set_index(i * 3 + 2, z1 - nz * push_factor);
+
+            self.positions.set_index(j * 3, x2 + nx * push_factor);
+            self.positions.set_index(j * 3 + 1, y2 + ny * push_factor);
+            self.positions.set_index(j * 3 + 2, z2 + nz * push_factor);
+
+            // Now handle velocity changes (elastic collision)
+            // Get velocities
+            let vx1 = self.velocities.get_index(i * 3);
+            let vy1 = self.velocities.get_index(i * 3 + 1);
+            let vz1 = self.velocities.get_index(i * 3 + 2);
+
+            let vx2 = self.velocities.get_index(j * 3);
+            let vy2 = self.velocities.get_index(j * 3 + 1);
+            let vz2 = self.velocities.get_index(j * 3 + 2);
+
+            // Calculate relative velocity
+            let dvx = vx2 - vx1;
+            let dvy = vy2 - vy1;
+            let dvz = vz2 - vz1;
+
+            // Calculate relative velocity along the normal
+            let normal_velocity = dvx * nx + dvy * ny + dvz * nz;
+
+            // If particles are moving away from each other, skip response
+            if normal_velocity > 0.0 {
+                return;
+            }
+
+            // Calculate impulse (assuming equal masses)
+            let restitution = 0.8; // Coefficient of restitution (1.0 = perfectly elastic)
+            let impulse = -(1.0 + restitution) * normal_velocity / 2.0;
+
+            // Apply impulse
+            self.velocities.set_index(i * 3, vx1 - impulse * nx);
+            self.velocities.set_index(i * 3 + 1, vy1 - impulse * ny);
+            self.velocities.set_index(i * 3 + 2, vz1 - impulse * nz);
+
+            self.velocities.set_index(j * 3, vx2 + impulse * nx);
+            self.velocities.set_index(j * 3 + 1, vy2 + impulse * ny);
+            self.velocities.set_index(j * 3 + 2, vz2 + impulse * nz);
+        }
+    }
+
     pub fn next(&mut self) {
         let grain_count = self.positions.length() / 3;
+
+        self.update_spatial_grid();
+
         let gravity = -0.05;
 
         for i in 0..grain_count {
@@ -212,6 +355,30 @@ impl Image {
                 vy *= restitution;
                 vz *= restitution;
             }
+
+            // Update position
+            self.positions.set_index(i * 3, x);
+            self.positions.set_index(i * 3 + 1, y);
+            self.positions.set_index(i * 3 + 2, z);
+
+            // Update velocity
+            self.velocities.set_index(i * 3, vx);
+            self.velocities.set_index(i * 3 + 1, vy);
+            self.velocities.set_index(i * 3 + 2, vz);
+        }
+
+        self.check_collisions();
+
+        for i in 0..grain_count {
+            // Get position
+            let mut x = self.positions.get_index(i * 3);
+            let mut y = self.positions.get_index(i * 3 + 1);
+            let mut z = self.positions.get_index(i * 3 + 2);
+
+            // Get velocity
+            let mut vx = self.velocities.get_index(i * 3);
+            let mut vy = self.velocities.get_index(i * 3 + 1);
+            let mut vz = self.velocities.get_index(i * 3 + 2);
 
             // Boundary checks for x
             if x < 0.0 {
