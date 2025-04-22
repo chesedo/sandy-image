@@ -907,12 +907,21 @@ async function init_wasm() {
     let renderEngine;
     let animationFrameId;
     let animating = true;
+    let globalVX = Math.random() * 0.5 - 0.25;
+    let globalVY = Math.random() * 0.5 - 0.25;
+    let globalVZ = Math.random() * 0.5 - 0.25;
 
     self.postMessage("ready");
 
     function animate() {
         if (animating) {
-            image.next();
+            if (animationFrameId % 50 === 0) {
+                globalVX += Math.random() * 0.5 - 0.25;
+                globalVY = Math.random() * 0.5 - 0.25;
+                globalVZ += Math.random() * 0.5 - 0.25;
+            }
+
+            image.next(globalVX, globalVY, globalVZ);
 
             // Update 
             renderEngine.updateGrains();

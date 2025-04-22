@@ -32,7 +32,7 @@ function SandyImage(imgSelector, options) {
     this.lastMouseY = 0;
     this.mouseButton = 0;  // 0 = left button, 2 = right button
 
-    this.grainCount = 10; // TODO remove
+    this.grainCount = 5000; // TODO remove
     this.steps = options.steps;
 
     this.init();

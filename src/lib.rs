@@ -104,7 +104,7 @@ impl Image {
             width,
             height,
             grid: Default::default(),
-            cell_size: 1.0, // Assuming each grid cell is 1x1
+            cell_size: 0.7, // Assuming each grid cell is 1x1
         }
     }
 
@@ -305,12 +305,108 @@ impl Image {
         }
     }
 
-    pub fn next(&mut self) {
+    /// Determines if a grain is exposed to the breeze
+    fn is_grain_exposed(&self, index: u32, breeze_dir: [f32; 3]) -> bool {
+        let x = self.positions.get_index(index * 3);
+        let y = self.positions.get_index(index * 3 + 1);
+        let z = self.positions.get_index(index * 3 + 2);
+
+        // Normalized breeze direction
+        let breeze_len =
+            (breeze_dir[0].powi(2) + breeze_dir[1].powi(2) + breeze_dir[2].powi(2)).sqrt();
+        let breeze_norm = [
+            breeze_dir[0] / breeze_len,
+            breeze_dir[1] / breeze_len,
+            breeze_dir[2] / breeze_len,
+        ];
+
+        // Check if there are any grains in the upwind direction that would shelter this grain
+        // Define the shelter cone parameters
+        let cone_height = 3.0; // How far to check upwind
+        let cone_width = 1.5; // Width of shelter cone
+
+        // Calculate upwind cell range to check (opposite to breeze direction)
+        let cell_x = (x / self.cell_size).floor() as i32;
+        let cell_y = (y / self.cell_size).floor() as i32;
+        let cell_z = (z / self.cell_size).floor() as i32;
+
+        // Calculate upwind direction (opposite of breeze direction)
+        let upwind_dir = [-breeze_norm[0], -breeze_norm[1], -breeze_norm[2]];
+
+        // Check cells in upwind direction for potential sheltering grains
+        for dist in 1..=3 {
+            // Check up to 3 cells upwind
+            // Calculate the cell in the upwind direction
+            let check_cell_x = cell_x + (upwind_dir[0] * dist as f32).round() as i32;
+            let check_cell_y = cell_y + (upwind_dir[1] * dist as f32).round() as i32;
+            let check_cell_z = cell_z + (upwind_dir[2] * dist as f32).round() as i32;
+
+            // Check for grains in this cell and neighboring cells
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        if let Some(particles) = self.grid.get(&(
+                            check_cell_x + dx,
+                            check_cell_y + dy,
+                            check_cell_z + dz,
+                        )) {
+                            for &j in particles {
+                                if j == index {
+                                    continue;
+                                } // Skip self
+
+                                // Get position of potential sheltering grain
+                                let other_x = self.positions.get_index(j * 3);
+                                let other_y = self.positions.get_index(j * 3 + 1);
+                                let other_z = self.positions.get_index(j * 3 + 2);
+
+                                // Vector from this grain to the other grain
+                                let dx = other_x - x;
+                                let dy = other_y - y;
+                                let dz = other_z - z;
+
+                                // Project this vector onto the upwind direction
+                                let proj_len =
+                                    dx * upwind_dir[0] + dy * upwind_dir[1] + dz * upwind_dir[2];
+
+                                // If projection is positive and within our cone height
+                                if proj_len > 0.0 && proj_len < cone_height {
+                                    // Calculate perpendicular distance to the upwind axis
+                                    let perp_x = dx - proj_len * upwind_dir[0];
+                                    let perp_y = dy - proj_len * upwind_dir[1];
+                                    let perp_z = dz - proj_len * upwind_dir[2];
+                                    let perp_dist =
+                                        (perp_x * perp_x + perp_y * perp_y + perp_z * perp_z)
+                                            .sqrt();
+
+                                    // If within the cone width (wider as we go further upwind)
+                                    let cone_radius = cone_width * (proj_len / cone_height);
+                                    if perp_dist < cone_radius {
+                                        // This grain is sheltered
+                                        return false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // No sheltering grain found, this grain is exposed
+        true
+    }
+
+    pub fn next(&mut self, global_vx: f32, global_vy: f32, global_vz: f32) {
         let grain_count = self.positions.length() / 3;
 
         self.update_spatial_grid();
 
-        let gravity = -0.05;
+        // Calculate breeze direction (could be passed in or varied over time)
+        let breeze_dir = [global_vx, global_vy, global_vz];
+        let breeze_strength = 0.03; // Adjust based on desired strength
+
+        let gravity = -0.097;
 
         for i in 0..grain_count {
             // Get position
@@ -325,6 +421,22 @@ impl Image {
 
             // Apply gravity to y-velocity
             vy += gravity;
+
+            // Apply breeze if this grain is exposed
+            if self.is_grain_exposed(i, breeze_dir) {
+                // Get height above terrain to adjust breeze strength
+                let terrain_y = self.get_terrain_height(x, z);
+                let height_above_terrain = y - terrain_y;
+
+                // Breeze strength increases with height above terrain
+                let height_factor = (1.0 + height_above_terrain * 0.5).min(3.0);
+
+                // Apply breeze force
+                vx += breeze_dir[0] * breeze_strength * height_factor;
+                // vy component is usually minimal for a horizontal breeze
+                vy += breeze_dir[1] * breeze_strength * height_factor;
+                vz += breeze_dir[2] * breeze_strength * height_factor;
+            }
 
             // Apply velocity to position
             x += vx;
